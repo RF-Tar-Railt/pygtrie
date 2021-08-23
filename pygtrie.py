@@ -274,7 +274,7 @@ class _Node(object):
         while True:
             if a.value != b.value or len(a.children) != len(b.children):
                 return False
-            elif len(a.children) == 1:
+            if len(a.children) == 1:
                 # We know a.children and b.children are both _OneChild objects
                 # but pylint doesn’t recognise that: pylint: disable=no-member
                 if a.children.step != b.children.step:
@@ -282,7 +282,7 @@ class _Node(object):
                 a = a.children.node
                 b = b.children.node
                 continue
-            elif a.children:
+            if a.children:
                 stack.append((a.children.iteritems(), b.children))
 
             while True:
@@ -885,13 +885,13 @@ class Trie(_abc.MutableMapping):
         if is_slice:
             node.children = _EMPTY
 
-    def setdefault(self, key, value=None):
+    def setdefault(self, key, default=None):
         """Sets value of a given node if not set already.  Also returns it.
 
         In contrast to :func:`Trie.__setitem__`, this method does not accept
         slice as a key.
         """
-        return self._set_node(key, value, only_if_missing=True).value
+        return self._set_node(key, default, only_if_missing=True).value
 
     @staticmethod
     def _pop_value(trace):
@@ -947,10 +947,9 @@ class Trie(_abc.MutableMapping):
         value = self._pop_value(trace)
         if value is not _EMPTY:
             return value
-        elif default is not _EMPTY:
+        if default is not _EMPTY:
             return default
-        else:
-            raise ShortKeyError()
+        raise ShortKeyError()
 
     def popitem(self):
         """Deletes an arbitrary value from the trie and returns it.
@@ -1050,10 +1049,9 @@ class Trie(_abc.MutableMapping):
             """
             if index == 0:
                 return self.key
-            elif index == 1:
+            if index == 1:
                 return self.value
-            else:
-                raise IndexError('index out of range')
+            raise IndexError('index out of range')
 
         def __repr__(self):
             return '(None Step)'
@@ -1105,7 +1103,7 @@ class Trie(_abc.MutableMapping):
         def key(self):
             """Returns key of the node."""
             if not hasattr(self, '_Step__key'):
-                # pylint: disable=protected-access
+                # pylint:disable=protected-access,attribute-defined-outside-init
                 self.__key = self._trie._key_from_path(self._path[:self._pos])
             return self.__key
 
@@ -1676,15 +1674,14 @@ class PrefixSet(_abc.MutableSet):
         """
         if prefix is _EMPTY:
             return iter(self)
-        elif self._trie.has_node(prefix):
+        if self._trie.has_node(prefix):
             return self._trie.iterkeys(prefix=prefix)
-        elif prefix in self:
+        if prefix in self:
             # Make sure the type of returned keys is consistent.
             # pylint: disable=protected-access
             return (
                 self._trie._key_from_path(self._trie._path_from_key(prefix)),)
-        else:
-            return ()
+        return ()
 
     def __len__(self):
         """Returns number of keys stored in the set.

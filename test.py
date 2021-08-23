@@ -22,20 +22,20 @@ import pygtrie
 class _TrieFactoryParameteriser(object):
     # pylint: disable=no-self-argument, invalid-name
 
-    def __make_update_trie_factory(update):
+    def __make_update_trie_factory(update):  # pylint: disable=unused-private-member
         def factory(trie_ctor, d):
             t = trie_ctor()
             update(t, d)
             return t
         return factory
 
-    def __setter_trie_factory(trie_ctor, d):
+    def __setter_trie_factory(trie_ctor, d):  # pylint: disable=unused-private-member
         t = trie_ctor()
         for k, v in d.items():
             t[k] = v
         return t
 
-    def __sorted_trie_factory(trie_ctor, d):
+    def __sorted_trie_factory(trie_ctor, d):  # pylint: disable=unused-private-member
         t = trie_ctor(d)
         t.enable_sorting(True)
         return t
@@ -916,9 +916,8 @@ class TraverseTest(unittest.TestCase):
             if value is self._SENTINEL and len(children) == 1:
                 # There is only one prefix.
                 return children[0]
-            else:
-                return self._TestNode(
-                    path_conv(path), bool(children), children, value)
+            return self._TestNode(
+                path_conv(path), bool(children), children, value)
 
         r = t.traverse(make)
         # Result:
@@ -950,10 +949,9 @@ class TraverseTest(unittest.TestCase):
             cnt[0] += 1
             if path and path[0] == 'a':
                 return None
-            else:
-                children = [ch for ch in children if ch is not None]
-                return self._TestNode(
-                    path_conv(path), bool(children), children, value)
+            children = [ch for ch in children if ch is not None]
+            return self._TestNode(
+                path_conv(path), bool(children), children, value)
 
         r = t.traverse(make)
         # Result:

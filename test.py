@@ -488,10 +488,10 @@ class TrieTestCase(unittest.TestCase):
                            self._OTHER_KEY), 42)
         t = trie_factory(self._TRIE_CTOR, d)
 
-        pickled = pickle.dumps(t)
-        u = pickle.loads(pickled)
-
-        self.assertEqual(t, u)
+        for protocol in range(0, pickle.HIGHEST_PROTOCOL + 1):
+            pickled = pickle.dumps(t, protocol=protocol)
+            u = pickle.loads(pickled)
+            self.assertEqual(t, u, 'protocol=' + str(protocol))
 
     def _test_copy_impl(self, make_copy, is_shallow):
         key = self._LONG_KEY

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Pure Python implementation of a trie data structure compatible with Python
-2.x and Python 3.x.
+"""Pure Python implementation of a trie data structure.
 
 `Trie data structure <http://en.wikipedia.org/wiki/Trie>`_, also known as radix
 or prefix tree, is a tree associating keys to values where all the descendants
@@ -37,8 +36,6 @@ Features
 For a few simple examples see ``example.py`` file.
 """
 
-from __future__ import absolute_import, division, print_function
-
 __author__ = 'Michal Nazarewicz <mina86@mina86.com>'
 __copyright__ = ('Copyright 2014-2017 Google LLC',
                  'Copyright 2018-2020 Michal Nazarewicz <mina86@mina86.com>')
@@ -46,10 +43,7 @@ __copyright__ = ('Copyright 2014-2017 Google LLC',
 
 
 import copy as _copy
-try:
-    import collections.abc as _abc
-except ImportError:  # Python 2 compatibility
-    import collections as _abc
+import collections.abc as _abc
 
 
 class ShortKeyError(KeyError):
@@ -57,7 +51,7 @@ class ShortKeyError(KeyError):
     but does not have a value associated with itself."""
 
 
-class _NoChildren(object):
+class _NoChildren:
     """Collection representing lack of any children.
 
     Also acts as an empty iterable and an empty iterator.  This isn’t the
@@ -70,15 +64,14 @@ class _NoChildren(object):
 
     def __bool__(self):
         return False
-    __nonzero__ = __bool__
     def __len__(self):
         return 0
+
     def __iter__(self):
         return self
-    iteritems = sorted_items = __iter__
     def __next__(self):
         raise StopIteration()
-    next = __next__
+    items = sorted_items = __iter__
 
     def get(self, _step):
         return None
@@ -96,14 +89,14 @@ class _NoChildren(object):
     def __deepcopy__(self, memo):
         return self
 
-    # delete is not implemented on purpose since it should never be called on
-    # a node with no children.
+    # pick and delete aren’t implemented on purpose since it should never be
+    # called on a node with no children.
 
 
 _EMPTY = _NoChildren()
 
 
-class _OneChild(object):
+class _OneChild:
     """Children collection representing a single child."""
 
     __slots__ = ('step', 'node')
@@ -114,15 +107,15 @@ class _OneChild(object):
 
     def __bool__(self):
         return True
-    __nonzero__ = __bool__
     def __len__(self):
         return 1
 
-    def sorted_items(self):
-        return [(self.step, self.node)]
+    def items(self):
+        return ((self.step, self.node),)
+    sorted_items = items
 
-    def iteritems(self):
-        return iter(((self.step, self.node),))
+    def pick(self):
+        return (self.step, self.node)
 
     def get(self, step):
         return self.node if step == self.step else None
@@ -160,19 +153,13 @@ class _Children(dict):
     __slots__ = ()
 
     def __init__(self, *items):
-        super(_Children, self).__init__(items)
+        super().__init__(items)
 
-    if hasattr(dict, 'iteritems'):  # Python 2 compatibility
-        def sorted_items(self):
-            items = self.items()
-            items.sort()
-            return items
-    else:
-        def sorted_items(self):
-            return sorted(self.items())
+    def sorted_items(self):
+        return sorted(self.items())
 
-        def iteritems(self):
-            return iter(self.items())
+    def pick(self):
+        return next(iter(self.items()))
 
     def add(self, _parent, step):
         self[step] = node = _Node()
@@ -183,7 +170,7 @@ class _Children(dict):
 
     def merge(self, other, queue):
         """Moves children from other into this object."""
-        for step, other_node in other.iteritems():
+        for step, other_node in other.items():
             node = self.setdefault(step, other_node)
             if node is not other_node:
                 queue.append((node, other_node))
@@ -202,7 +189,7 @@ class _Children(dict):
         return cpy
 
 
-class _Node(object):
+class _Node:
     """A single node of a trie.
 
     Stores value associated with the node and dictionary of children.
@@ -231,7 +218,7 @@ class _Node(object):
                 lhs.children = lhs.children.merge(rhs.children, queue)
             rhs.children = _EMPTY
 
-    def iterate(self, path, shallow, iteritems):
+    def iterate(self, path, shallow, items):
         """Yields all the nodes with values associated to them in the trie.
 
         Args:
@@ -239,11 +226,10 @@ class _Node(object):
                 returning value of this node and as a prefix for children.
             shallow: Perform a shallow traversal, i.e. do not yield nodes if
                 their prefix has been yielded.
-            iteritems: A callable taking ``node.children`` as sole argument and
-                returning an iterable of children as ``(step, node)`` pair.  The
-                callable would typically call ``iteritems`` or ``sorted_items``
-                method on the argument depending on whether sorted output is
-                desired.
+            items: A callable which takes ``node.children`` as a sole argument
+                and returns an iterable of children as ``(step, node)`` pairs.
+                It would typically call ``items`` or ``sorted_items`` method on
+                the argument depending on whether sorted output is desired.
 
         Yields:
             ``(path, value)`` tuples.
@@ -257,7 +243,7 @@ class _Node(object):
                 yield path, node.value
 
             if (not shallow or node.value is _EMPTY) and node.children:
-                stack.append(iter(iteritems(node.children)))
+                stack.append(iter(items(node.children)))
                 path.append(None)
 
             while True:
@@ -271,18 +257,17 @@ class _Node(object):
                 except IndexError:
                     return
 
-    def traverse(self, node_factory, path_conv, path, iteritems):
+    def traverse(self, node_factory, path_conv, path, items):
         """Traverses the node and returns another type of node from factory.
 
         Args:
             node_factory: Callable to construct return value.
             path_conv: Callable to convert node path to a key.
             path: Current path for this node.
-            iteritems: A callable taking ``node.children`` as sole argument and
-                returning an iterable of children as ``(step, node)`` pair.  The
-                callable would typically call ``iteritems`` or ``sorted_items``
-                method on the argument depending on whether sorted output is
-                desired.
+            items: A callable which takes ``node.children`` as a sole argument
+                and returns an iterable of children as ``(step, node)`` pairs.
+                It would typically call ``items`` or ``sorted_items`` method on
+                the argument depending on whether sorted output is desired.
 
         Returns:
             An object constructed by calling node_factory(path_conv, path,
@@ -292,8 +277,8 @@ class _Node(object):
             nodes (see make_test_node_and_compress in test.py).
         """
         children = self.children and (
-            node.traverse(node_factory, path_conv, path + [step], iteritems)
-            for step, node in iteritems(self.children))
+            node.traverse(node_factory, path_conv, path + [step], items)
+            for step, node in items(self.children))
 
         value_maybe = ()
         if self.value is not _EMPTY:
@@ -318,7 +303,7 @@ class _Node(object):
                 b = b.children.node
                 continue
             if a.children:
-                stack.append((a.children.iteritems(), b.children))
+                stack.append((iter(a.children.items()), b.children))
 
             while True:
                 try:
@@ -332,7 +317,7 @@ class _Node(object):
                 except KeyError:
                     return False
 
-    __bool__ = __nonzero__ = __hash__ = None
+    __bool__ = __hash__ = None
 
     def shallow_copy(self, make_copy):
         """Returns a copy of the node which shares the children property."""
@@ -397,7 +382,7 @@ class _Node(object):
             if node.value is not _EMPTY:
                 last_cmd = 0
                 state.append(node.value)
-            stack.append(node.children.iteritems())
+            stack.append(iter(node.children.items()))
 
             while True:
                 step, node = next(stack[-1], (None, None))
@@ -459,10 +444,10 @@ class Trie(_abc.MutableMapping):
         them.
         """
         self._root = _Node()
-        self._iteritems = self._ITERITEMS_CALLBACKS[0]
+        self._items_callback = self._ITEMS_CALLBACKS[0]
         self.update(*args, **kwargs)
 
-    _ITERITEMS_CALLBACKS = (lambda x: x.iteritems(), lambda x: x.sorted_items())
+    _ITEMS_CALLBACKS = (lambda x: x.items(), lambda x: x.sorted_items())
 
     def enable_sorting(self, enable=True):
         """Enables sorting of child nodes when iterating and traversing.
@@ -485,17 +470,17 @@ class Trie(_abc.MutableMapping):
         Args:
             enable: Whether to enable sorting of child nodes.
         """
-        self._iteritems = self._ITERITEMS_CALLBACKS[bool(enable)]
+        self._items_callback = self._ITEMS_CALLBACKS[bool(enable)]
 
     def __getstate__(self):
-        # encode self._iteritems as self._sorted when pickling
+        # encode self._items_callback as self._sorted when pickling
         state = self.__dict__.copy()
-        callback = state.pop('_iteritems', None)
-        state['_sorted'] = callback is self._ITERITEMS_CALLBACKS[1]
+        callback = state.pop('_items_callback', None)
+        state['_sorted'] = callback is self._ITEMS_CALLBACKS[1]
         return state
 
     def __setstate__(self, state):
-        # translate self._sorted back to _iteritems when unpickling
+        # translate self._sorted back to _items_callback when unpickling
         self.__dict__ = state
         self.enable_sorting(state.pop('_sorted'))
 
@@ -518,7 +503,7 @@ class Trie(_abc.MutableMapping):
             for key, value in args[0].items():
                 self[key] = value
             args = ()
-        super(Trie, self).update(*args, **kwargs)
+        super().update(*args, **kwargs)
 
     def merge(self, other, overwrite=False):
         """Moves nodes from other trie into this one.
@@ -717,7 +702,7 @@ class Trie(_abc.MutableMapping):
         """
         node, _ = self._get_node(prefix)
         for path, value in node.iterate(list(self.__path_from_key(prefix)),
-                                        shallow, self._iteritems):
+                                        shallow, self._items_callback):
             yield (self._key_from_path(path), value)
 
     def iterkeys(self, prefix=_EMPTY, shallow=False):
@@ -759,7 +744,7 @@ class Trie(_abc.MutableMapping):
         """
         node, _ = self._get_node(prefix)
         for _, value in node.iterate(list(self.__path_from_key(prefix)),
-                                     shallow, self._iteritems):
+                                     shallow, self._items_callback):
             yield value
 
     def items(self, prefix=_EMPTY, shallow=False):
@@ -796,7 +781,6 @@ class Trie(_abc.MutableMapping):
     def __bool__(self):
         return self._root.value is not _EMPTY or bool(self._root.children)
 
-    __nonzero__ = __bool__
     __hash__ = None
 
     HAS_VALUE = 1
@@ -1053,7 +1037,7 @@ class Trie(_abc.MutableMapping):
         node = self._root
         trace = [(None, node)]
         while node.value is _EMPTY:
-            step, node = next(node.children.iteritems())
+            step, node = node.children.pick()
             trace.append((step, node))
         key = self._key_from_path((step for step, _ in trace[1:]))
         return key, self._pop_value(trace)
@@ -1100,14 +1084,13 @@ class Trie(_abc.MutableMapping):
             raise ShortKeyError(key)
         self._pop_value(trace)
 
-    class _NoneStep(object):
+    class _NoneStep:
         """Representation of a non-existent step towards non-existent node."""
 
         __slots__ = ()
 
         def __bool__(self):
             return False
-        __nonzero__ = __bool__
 
         def get(self, default=None):
             return default
@@ -1154,7 +1137,6 @@ class Trie(_abc.MutableMapping):
 
         def __bool__(self):
             return True
-        __nonzero__ = __bool__
 
         @property
         def is_set(self):
@@ -1459,7 +1441,7 @@ class Trie(_abc.MutableMapping):
             result = self._eq_impl(other)
             if result is not NotImplemented:
                 return result
-        return super(Trie, self).__eq__(other)
+        return super().__eq__(other)
 
     def _eq_impl(self, other):
         return self._root.equals(other._root) # pylint: disable=protected-access
@@ -1528,7 +1510,7 @@ class Trie(_abc.MutableMapping):
         iterable of children nodes constructed by node_factory, optional value
         is the value associated with the path.
 
-        node_factory's children argument is an iterator which has a few
+        node_factory's children argument is a lazy iterable which has a few
         consequences:
 
         * To traverse into node's children, the object must be iterated over.
@@ -1600,14 +1582,14 @@ class Trie(_abc.MutableMapping):
             for root, _, files in os.walk('.'):
                 for name in files: t[os.path.join(root, name)] = True
 
-            class File(object):
+            class File:
                 def __init__(self, name):
                     self.name = name
                     self.parent = None
 
             class Directory(File):
                 def __init__(self, name, children):
-                    super(Directory, self).__init__(name)
+                    super().__init__(name)
                     self._children = children
                     for child in children:
                         child.parent = self
@@ -1632,7 +1614,7 @@ class Trie(_abc.MutableMapping):
 
                 Node = collections.namedtuple('Node', 'path neighbours')
 
-                class Builder(object):
+                class Builder:
                     def __init__(self, path_conv, path, children, _=None):
                         self.node = Node(path_conv(path), [])
                         self.children = children
@@ -1667,7 +1649,7 @@ class Trie(_abc.MutableMapping):
         node, _ = self._get_node(prefix)
         return node.traverse(node_factory, self._key_from_path,
                              list(self.__path_from_key(prefix)),
-                             self._iteritems)
+                             self._items_callback)
 
     traverse.uses_bool_convertible_children = True
 
@@ -1747,12 +1729,12 @@ class StringTrie(Trie):
             ValueError: If ``separator`` is empty.
         """
         separator = kwargs.pop('separator', '/')
-        if not isinstance(separator, getattr(__builtins__, 'basestring', str)):
+        if not isinstance(separator, str):
             raise TypeError('separator must be a string')
         if not separator:
             raise ValueError('separator can not be empty')
         self._separator = separator
-        super(StringTrie, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     @classmethod
     def fromkeys(cls, keys, value=None, separator='/'):  # pylint: disable=arguments-differ
@@ -1785,7 +1767,7 @@ class StringTrie(Trie):
         # different trie structure.
         if self._separator != other._separator:  # pylint: disable=protected-access
             return NotImplemented
-        return super(StringTrie, self)._eq_impl(other)
+        return super()._eq_impl(other)
 
     def _path_from_key(self, key):
         return key.split(self._separator)
@@ -1816,7 +1798,7 @@ class PrefixSet(_abc.MutableSet):
                     :class:`pygtrie.PrefixSet`.
             kwargs: Additional keyword arguments passed to the factory function.
         """
-        super(PrefixSet, self).__init__()
+        super().__init__()
         self._trie = factory(**kwargs)
         for key in iterable:
             self.add(key)

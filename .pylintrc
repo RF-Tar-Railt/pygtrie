@@ -41,17 +41,19 @@ load-plugins=pylint.extensions.check_elif,
 # --enable=similarities". If you want to run only the classes checker, but have
 # no Warning level messages displayed, use"--disable=all --enable=classes
 # --disable=W"
-disable=locally-disabled,
+disable=consider-using-f-string,
+        locally-disabled,
         missing-return-type-doc,
         missing-type-doc,
         missing-yield-type-doc,
+        no-else-return,
         no-self-use,
+        super-with-arguments,
         too-few-public-methods,
         too-many-lines,
         too-many-public-methods,
-        useless-object-inheritance,
-        super-with-arguments,
-        consider-using-f-string
+        unidiomatic-typecheck,
+        useless-object-inheritance
 
 
 [REPORTS]

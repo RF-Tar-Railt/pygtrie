@@ -1,7 +1,9 @@
 Version History
 ---------------
 
-2.4.3: TBD
+2.5.0: TBD
+
+- Add :func:`pygtrie.Trie.merge` which merges structures of two tries.
 
 - Fix :func:`pygtrie.Trie.__eq__` implementation such that key values
   are taken into consideration rather than just looking at trie

@@ -136,6 +136,16 @@ class _OneChild(object):
     def require(self, parent, step):
         return self.node if self.step == step else self.add(parent, step)
 
+    def merge(self, other, queue):
+        """Moves children from other into this object."""
+        if type(other) == _OneChild and other.step == self.step:
+            queue.append((self.node, other.node))
+            return self
+        else:
+            children = _Children((self.step, self.node))
+            children.merge(other, queue)
+            return children
+
     def delete(self, parent, _step):
         parent.children = _EMPTY
 
@@ -172,6 +182,14 @@ class _Children(dict):
     def require(self, _parent, step):
         return self.setdefault(step, _Node())
 
+    def merge(self, other, queue):
+        """Moves children from other into this object."""
+        for step, other_node in other.iteritems():
+            node = self.setdefault(step, other_node)
+            if node is not other_node:
+                queue.append((node, other_node))
+        return self
+
     def delete(self, parent, step):
         del self[step]
         if len(self) == 1:
@@ -195,6 +213,24 @@ class _Node(object):
     def __init__(self):
         self.children = _EMPTY
         self.value = _EMPTY
+
+    def merge(self, other, overwrite):
+        """Move children from other node into this one.
+
+        Args:
+            other: Other node to move children and value from.
+            overwrite: Whether to overwrite existing node values.
+        """
+        queue = [(self, other)]
+        while queue:
+            lhs, rhs = queue.pop()
+            if lhs.value is _EMPTY or (overwrite and rhs.value is not _EMPTY):
+                lhs.value = rhs.value
+            if lhs.children is _EMPTY:
+                lhs.children = rhs.children
+            elif rhs.children is not _EMPTY:
+                lhs.children = lhs.children.merge(rhs.children, queue)
+            rhs.children = _EMPTY
 
     def iterate(self, path, shallow, iteritems):
         """Yields all the nodes with values associated to them in the trie.
@@ -483,6 +519,55 @@ class Trie(_abc.MutableMapping):
                 self[key] = value
             args = ()
         super(Trie, self).update(*args, **kwargs)
+
+    def merge(self, other, overwrite=False):
+        """Moves nodes from other trie into this one.
+
+        The merging happens at trie structure level and as such is different
+        than iterating over items of one trie and setting them in the other
+        trie.
+
+        The merging may happen between different types of tries resulting in
+        different (key, value) pairs in the destination trie compared to the
+        source.  For example, merging two :class:`pygtrie.StringTrie` objects
+        each using different separators will work as if the other trie had
+        separator of this trie.  Similarly, a :class:`pygtrie.CharTrie` may be
+        merged into a :class:`pygtrie.StringTrie` but when keys are read those
+        will be joined by the separator.  For example:
+
+            >>> import pygtrie
+            >>> st = pygtrie.StringTrie(separator='.')
+            >>> st.merge(pygtrie.StringTrie({'foo/bar': 42}))
+            >>> list(st.items())
+            [('foo.bar', 42)]
+            >>> st.merge(pygtrie.CharTrie({'baz': 24}))
+            >>> sorted(st.items())
+            [('b.a.z', 24), ('foo.bar', 42)]
+
+        Not all tries can be merged into other tries.  For example,
+        a :class:`pygtrie.StringTrie` may not be merged into
+        a :class:`pygtrie.CharTrie` because the latter imposes a requirement for
+        each component in the key to be exactly one character while in the
+        former components may be arbitrary length.
+
+        Note that the other trie is cleared and any references or iterators over
+        it are invalidated.  To preserve other’s value it needs to be copied
+        first.
+
+        Args:
+            other: Other trie to move nodes from.
+            overwrite: Whether to overwrite existing values in this trie.
+        """
+        if isinstance(self, type(other)):
+            self._merge_impl(self, other, overwrite=overwrite)
+        else:
+            other._merge_impl(self, other, overwrite=overwrite) # pylint: disable=protected-access
+        other.clear()
+
+    @classmethod
+    def _merge_impl(cls, dst, src, overwrite):
+        # pylint: disable=protected-access
+        dst._root.merge(src._root, overwrite=overwrite)
 
     def copy(self, __make_copy=lambda x: x):
         """Returns a shallow copy of the object."""
@@ -1636,6 +1721,13 @@ class StringTrie(Trie):
         for key in keys:
             trie[key] = value
         return trie
+
+    @classmethod
+    def _merge_impl(cls, dst, src, overwrite):
+        if not isinstance(dst, StringTrie):
+            raise TypeError('%s cannot be merged into a %s' % (
+                type(src).__name__, type(dst).__name__))
+        super(StringTrie, cls)._merge_impl(dst, src, overwrite=overwrite)
 
     def __str__(self):
         if not self:

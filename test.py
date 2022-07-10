@@ -1114,5 +1114,43 @@ class EqualityTest(unittest.TestCase):
             self.assertNotEqual(trie, dictionary)
 
 
+class MergeTest(unittest.TestCase):
+    """Tests for merge method."""
+
+    def test_merge_tries(self):
+        trie = pygtrie.Trie({'foo': 1, 'bar': 2})
+
+        def test(want, src, overwrite=False):
+            trie.merge(src, overwrite=overwrite)
+            self.assertEqual(0, len(src))
+            self.assertEqual(pygtrie.Trie(want), trie)
+
+        test({'foo': 1, 'bar': 2, 'baz': 3},
+             pygtrie.Trie({'bar': 0, 'baz': 3}))
+        test({'foo': 1, 'bar': 2, 'baz': 4, 'fo': 5},
+             pygtrie.Trie({'baz': 4, 'fo': 5}), overwrite=True)
+        test({'foo': 1, 'bar': 2, 'baz': 4, 'fo': 5, 'qux': 6},
+             pygtrie.CharTrie({'qux': 6}))
+
+        st = pygtrie.StringTrie({'foo/bar/baz': 42})
+        self.assertRaises(TypeError, trie.merge, st)
+
+    def test_merge_string_tries(self):
+
+        def test(want, other, overwrite):
+            trie = pygtrie.StringTrie({'foo/bar': 42})
+            trie.merge(other, overwrite=overwrite)
+            self.assertEqual(want, dict(trie.items()))
+
+        test({'foo/bar': 42, 'bar/baz': 2},
+             pygtrie.StringTrie({'foo.bar': 4, 'bar.baz': 2}, separator='.'),
+             False)
+        test({'foo/bar': 4, 'bar/baz': 2},
+             pygtrie.StringTrie({'foo.bar': 4, 'bar.baz': 2}, separator='.'),
+             True)
+        test({'foo/bar': 42, 'q/u/x': 2}, pygtrie.Trie({'qux': 2}), False)
+        test({'foo/bar': 42, 'q/u/x': 2}, pygtrie.CharTrie({'qux': 2}), False)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -46,7 +46,6 @@ __copyright__ = ('Copyright 2014-2017 Google LLC',
 
 
 import copy as _copy
-import operator as _operator
 try:
     import collections.abc as _abc
 except ImportError:  # Python 2 compatibility
@@ -460,21 +459,10 @@ class Trie(_abc.MutableMapping):
         them.
         """
         self._root = _Node()
-        self._sorted = False
+        self._iteritems = self._ITERITEMS_CALLBACKS[0]
         self.update(*args, **kwargs)
 
-    @property
-    def _iteritems(self):
-        """Returns function returning iterable over items of its argument.
-
-        Returns:
-            A function which returns an iterable over items in a dictionary
-            passed to it as an argument.  If child nodes sorting has been
-            enabled (via :func:`Trie.enable_sorting` method), returned function
-            will go through the items in sorted order.
-        """
-        return _operator.methodcaller(
-            'sorted_items' if self._sorted else 'iteritems')
+    _ITERITEMS_CALLBACKS = (lambda x: x.iteritems(), lambda x: x.sorted_items())
 
     def enable_sorting(self, enable=True):
         """Enables sorting of child nodes when iterating and traversing.
@@ -497,7 +485,19 @@ class Trie(_abc.MutableMapping):
         Args:
             enable: Whether to enable sorting of child nodes.
         """
-        self._sorted = bool(enable)
+        self._iteritems = self._ITERITEMS_CALLBACKS[bool(enable)]
+
+    def __getstate__(self):
+        # encode self._iteritems as self._sorted when pickling
+        state = self.__dict__.copy()
+        callback = state.pop('_iteritems', None)
+        state['_sorted'] = callback is self._ITERITEMS_CALLBACKS[1]
+        return state
+
+    def __setstate__(self, state):
+        # translate self._sorted back to _iteritems when unpickling
+        self.__dict__ = state
+        self.enable_sorting(state.pop('_sorted'))
 
     def clear(self):
         """Removes all the values from the trie."""

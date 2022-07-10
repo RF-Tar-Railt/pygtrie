@@ -50,7 +50,8 @@ disable=locally-disabled,
         too-many-lines,
         too-many-public-methods,
         useless-object-inheritance,
-        super-with-arguments
+        super-with-arguments,
+        consider-using-f-string
 
 
 [REPORTS]

@@ -467,7 +467,7 @@ class Trie(_abc.MutableMapping):
         """Removes all the values from the trie."""
         self._root = _Node()
 
-    def update(self, *args, **kwargs):  # pylint: disable=signature-differs
+    def update(self, *args, **kwargs):  # pylint: disable=arguments-differ
         """Updates stored values.  Works like :meth:`dict.update`."""
         if len(args) > 1:
             raise ValueError('update() takes at most one positional argument, '
@@ -1274,8 +1274,71 @@ class Trie(_abc.MutableMapping):
         return ret
 
     def __eq__(self, other):
-        # pylint: disable=protected-access
-        return self is other or self._root.equals(other._root)
+        """Compares this trie’s mapping with another mapping.
+
+        Note that this method doesn’t take trie’s structure into consideration.
+        What matters is whether keys and values in both mappings are the same.
+        This may lead to unexpected results, for example:
+
+            >>> import pygtrie
+            >>> t0 = StringTrie({'foo/bar': 42}, separator='/')
+            >>> t1 = StringTrie({'foo.bar': 42}, separator='.')
+            >>> t0 == t1
+            False
+
+            >>> t0 = StringTrie({'foo/bar.baz': 42}, separator='/')
+            >>> t1 = StringTrie({'foo/bar.baz': 42}, separator='.')
+            >>> t0 == t1
+            True
+
+            >>> t0 = Trie({'foo': 42})
+            >>> t1 = CharTrie({'foo': 42})
+            >>> t0 == t1
+            False
+
+        This behaviour is required to maintain consistency with Mapping
+        interface and its __eq__ method.  For example, this implementation
+        maintains transitivity of the comparison:
+
+            >>> t0 = StringTrie({'foo/bar.baz': 42}, separator='/')
+            >>> d = {'foo/bar.baz': 42}
+            >>> t1 = StringTrie({'foo/bar.baz': 42}, separator='.')
+            >>> t0 == d
+            True
+            >>> d == t1
+            True
+            >>> t0 == t1
+            True
+
+            >>> t0 = Trie({'foo': 42})
+            >>> d = {'foo': 42}
+            >>> t1 = CharTrie({'foo': 42})
+            >>> t0 == d
+            False
+            >>> d == t1
+            True
+            >>> t0 == t1
+            False
+
+        Args:
+            other: Other object to compare to.
+
+        Returns:
+            ``NotImplemented`` if this method does not know how to perform the
+            comparison or a ``bool`` denoting whether the two objects are equal
+            or not.
+        """
+
+        if self is other:
+            return True
+        if isinstance(other, type(self)):
+            result = self._eq_impl(other)
+            if result is not NotImplemented:
+                return result
+        return super().__eq__(other)
+
+    def _eq_impl(self, other):
+        return self._root.equals(other._root) # pylint: disable=protected-access
 
     def __ne__(self, other):
         return not self == other
@@ -1583,6 +1646,15 @@ class StringTrie(Trie):
     def __repr__(self):
         return '%s([%s], separator=%r)' % (
             type(self).__name__, self._str_items('(%r, %r)'), self._separator)
+
+    def _eq_impl(self, other):
+        # If separators differ, fall back to slow generic comparison.  This is
+        # because we want StringTrie(foo/bar.baz: 42, separator=/) compare equal
+        # to StringTrie(foo/bar.baz: 42, separator=.) even though they have
+        # different trie structure.
+        if self._separator != other._separator:  # pylint: disable=protected-access
+            return NotImplemented
+        return super()._eq_impl(other)
 
     def _path_from_key(self, key):
         return key.split(self._separator)

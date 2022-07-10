@@ -1,6 +1,42 @@
 Version History
 ---------------
 
+2.4.3: TBD
+
+- Fix :func:`pygtrie.Trie.__eq__` implementation such that key values
+  are taken into consideration rather than just looking at trie
+  structure.  To see what this means it’s best to look at a few
+  examples.  Firstly:
+
+      >>> t0 = StringTrie({'foo/bar': 42}, separator='/')
+      >>> t1 = StringTrie({'foo.bar': 42}, separator='.')
+      >>> t0 == t1
+      False
+
+  This used to be true since the two tries have the same node
+  structure.  However, as far as Mapping interface is concerned, they
+  use different keys, i.e. ```set(t0) != set(t1)``.  Secondly:
+
+      >>> t0 = StringTrie({'foo/bar.baz': 42}, separator='/')
+      >>> t1 = StringTrie({'foo/bar.baz': 42}, separator='.')
+      >>> t0 == t1
+      True
+
+  This used to be false since the two tries have different node
+  structures (the first one splits key into ``('foo', 'bar.baz')``
+  while the second into ``('foo/bar', 'baz')``).  However, their keys
+  are the same, i.e. ```set(t0) == set(t1)``.  And lastly:
+
+      >>> t0 = Trie({'foo': 42})
+      >>> t1 = CharTrie({'foo': 42})
+      >>> t0 == t1
+      False
+
+  This used to be true since the two tries have the same node
+  structure.  However, the two classes return key as different values.
+  :class:`pygtrie.Trie` returns keys as tuples while
+  :class:`pygtrie.CharTrie` returns them as strings.
+
 2.4.2: 2021/01/03
 
 - Remove use of ‘super’ in ``setup.py`` to fix compatibility with

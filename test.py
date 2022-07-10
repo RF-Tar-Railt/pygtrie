@@ -54,13 +54,13 @@ class _TrieFactoryParameteriser(object):
         lambda trie_ctor, d: trie_ctor(trie_ctor(d))
     ), (
         'UpdateWithNamedArgs',
-        __make_update_trie_factory(lambda t, d: t.update(**d))
+        __make_update_trie_factory(lambda t, d: t.update(**d))  # pylint: disable=too-many-function-args
     ), (
         'UpdateWithTuples',
-        __make_update_trie_factory(lambda t, d: t.update(d.items()))
+        __make_update_trie_factory(lambda t, d: t.update(d.items()))  # pylint: disable=too-many-function-args
     ), (
         'UpdateWithDict',
-        __make_update_trie_factory(lambda t, d: t.update(d))
+        __make_update_trie_factory(lambda t, d: t.update(d))  # pylint: disable=too-many-function-args
     ), (
         'Setters',
         __setter_trie_factory
@@ -751,13 +751,13 @@ class StringTrieTestCase(TrieTestCase):
     _PICKLED_PROTO_0 = (
         'Y2NvcHlfcmVnCl9yZWNvbnN0cnVjdG9yCnAwCihjcHlndHJpZQpTdHJpbmdUcmllCnAxCm'
         'NfX2J1aWx0aW5fXwpvYmplY3QKcDIKTnRwMwpScDQKKGRwNQpWX3NlcGFyYXRvcgpwNgpW'
-        'LwpwNwpzVl9yb290CnA4CmcwCihjcHlndHJpZQpfTm9kZQpwOQpnMgpOdHAxMApScDExCi'
-        'hscDEyCkwxTAphVmZvbwpwMTMKYUw0MkwKYUwtMUwKYUwxTAphVmJhcgpwMTQKYUw0MkwK'
-        'YUwtMUwKYUwxTAphVmJhegpwMTUKYUw0MkwKYWJzVl9zb3J0ZWQKcDE2CkkwMApzYi4=')
+        'fgpwNwpzVl9yb290CnA4CmcwCihjcHlndHJpZQpfTm9kZQpwOQpnMgpOdHAxMApScDExCi'
+        'hscDEyCkkxCmFWZm9vCnAxMwphSTQyCmFJLTEKYUkxCmFWYmFyCnAxNAphSTQyCmFJLTEK'
+        'YUkxCmFWYmF6CnAxNQphSTQyCmFic1Zfc29ydGVkCnAxNgpJMDAKc2Iu')
 
     _PICKLED_PROTO_3 = (
         'gANjcHlndHJpZQpTdHJpbmdUcmllCnEAKYFxAX1xAihYCgAAAF9zZXBhcmF0b3JxA1gBAA'
-        'AAL3EEWAUAAABfcm9vdHEFY3B5Z3RyaWUKX05vZGUKcQYpgXEHXXEIKEsBWAMAAABmb29x'
+        'AAfnEEWAUAAABfcm9vdHEFY3B5Z3RyaWUKX05vZGUKcQYpgXEHXXEIKEsBWAMAAABmb29x'
         'CUsqSv////9LAVgDAAAAYmFycQpLKkr/////SwFYAwAAAGJhenELSyplYlgHAAAAX3Nvcn'
         'RlZHEMiXViLg==')
 
@@ -1047,6 +1047,71 @@ class RecursionTest(unittest.TestCase):
         # testing should not be necessary.
         #nodes = self._undirected_graph_from_trie(trie)
         #self.assertEqual((100 * 1000 - (100 * 99) / 2) * 2 + 1, len(nodes))
+
+
+class EqualityTest(unittest.TestCase):
+    """Tests for __eq__ and __ne__ implementations."""
+
+    def test_trie_ne_char_trie(self):
+        """Check that Trie and CharTrie are ne even if they have the same nodes.
+
+        Trie returns keys as tuples while CharTrie returns them as strings.
+        Because of that, even if they have the same nodes, they will produce
+        different (key, value) pairs.
+        """
+        trie = pygtrie.Trie([('foo', 42)])
+        char_trie = pygtrie.CharTrie([('foo', 42)])
+        # pylint: disable=protected-access
+        self.assertTrue(trie._root.equals(char_trie._root))
+        self.assertNotEqual(trie, char_trie)
+
+    def test_strieng_trie_eq(self):
+        """Test that StringTrie takes separator into consideration."""
+        trie_slash = pygtrie.StringTrie([('foo/bar', 42)])
+        trie_dot0 = pygtrie.StringTrie([('foo.bar', 42)], separator='.')
+        trie_dot1 = pygtrie.StringTrie([('foo.bar', 42)], separator='.')
+        self.assertEqual(trie_slash, trie_slash)
+        # pylint: disable=protected-access
+        self.assertTrue(trie_slash._root.equals(trie_dot0._root))
+        self.assertNotEqual(trie_slash, trie_dot0)
+        self.assertEqual(trie_dot0, trie_dot1)
+
+    def test_mapping_eq(self):
+        """Test comparison with non-Trie mapping types."""
+        # pylint: disable=import-outside-toplevel
+        try:
+            from collections import abc
+        except ImportError:  # Python 2 compatibility
+            abc = collections
+
+        class Mapping(abc.Mapping):
+            def __getitem__(self, key):
+                if key == 'foo/bar.baz':
+                    return 42
+                raise KeyError(key)
+
+            def __iter__(self):
+                return iter(('foo/bar.baz',))
+
+            def __len__(self):
+                return 1
+
+        trie_slash = pygtrie.StringTrie([('foo/bar.baz', 42)], separator='/')
+        trie_dot = pygtrie.StringTrie([('foo/bar.baz', 42)], separator='.')
+        char_trie = pygtrie.CharTrie([('foo/bar.baz', 42)])
+        dictionary = {'foo/bar.baz': 42}
+        mapping = Mapping()
+
+        all_mappings = (trie_slash, trie_dot, char_trie, dictionary, mapping)
+        for a in all_mappings:
+            for b in all_mappings:
+                self.assertEqual(a, b)
+
+        dictionary['other-key'] = 24
+        all_tries = (trie_slash, trie_dot, char_trie)
+        for trie in all_tries:
+            self.assertNotEqual(dictionary, trie)
+            self.assertNotEqual(trie, dictionary)
 
 
 if __name__ == '__main__':

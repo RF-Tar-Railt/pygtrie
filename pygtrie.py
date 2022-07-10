@@ -1335,7 +1335,7 @@ class Trie(_abc.MutableMapping):
             result = self._eq_impl(other)
             if result is not NotImplemented:
                 return result
-        return super().__eq__(other)
+        return super(Trie, self).__eq__(other)
 
     def _eq_impl(self, other):
         return self._root.equals(other._root) # pylint: disable=protected-access
@@ -1654,7 +1654,7 @@ class StringTrie(Trie):
         # different trie structure.
         if self._separator != other._separator:  # pylint: disable=protected-access
             return NotImplemented
-        return super()._eq_impl(other)
+        return super(StringTrie, self)._eq_impl(other)
 
     def _path_from_key(self, key):
         return key.split(self._separator)

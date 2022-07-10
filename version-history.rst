@@ -17,13 +17,13 @@ Version History
 2.4.0: 2020/11/19  [pulled back from PyPi]
 
 - Change ``children`` argument of the ``node_factory`` passed to
-  :func:`Trie.traverse` from a generator to an iterator with a custom
-  bool conversion.  This allows checking whether node has children
-  without having to iterate over them (``bool(children)``)
+  :func:`pygtrie.Trie.traverse` from a generator to an iterator with
+  a custom bool conversion.  This allows checking whether node has
+  children without having to iterate over them (``bool(children)``)
 
   To test whether this feature is available, one can check whether
-  :const:`Trie.traverse.uses_bool_convertible_children` property is
-  true, e.g.: ``getattr(pygtrie.Trie.traverse,
+  `Trie.traverse.uses_bool_convertible_children` property is true,
+  e.g.: ``getattr(pygtrie.Trie.traverse,
   'uses_bool_convertible_children', False)``.
 
   [Thanks to Pallab Pain for suggesting the feature]
@@ -38,8 +38,8 @@ Version History
   :func:`pygtrie.Trie.walk_towards` et al.  This deprecates the
   ``set`` method.
 
-- The module now exports :const:`pygtrie.__version__` making it
-  possible to determine version of the library at run-time.
+- The module now exports `pygtrie.__version__` making it possible to
+  determine version of the library at run-time.
 
 2.3.2: 2019/07/18
 
@@ -77,8 +77,8 @@ Version History
 
 - New :func:`pygtrie.Trie.walk_towards` method allows walking a path
   towards a node with given key accessing each step of the path.
-  Compared to :func:`pygtrie.Trie.walk_prefixes` method, steps for
-  nodes without assigned values are returned.
+  Compared to `pygtrie.Trie.walk_prefixes` method, steps for nodes
+  without assigned values are returned.
 
 - Fix to :func:`pygtrie.PrefixSet.copy` not preserving type of backing
   trie.

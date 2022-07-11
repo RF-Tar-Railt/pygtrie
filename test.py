@@ -1050,7 +1050,7 @@ class RecursionTest(unittest.TestCase):
 
 
 class EqualityTest(unittest.TestCase):
-    """Tests for __eq__ and __ne__ implementations."""
+    """Tests for equality comparisons."""
 
     def test_trie_ne_char_trie(self):
         """Check that Trie and CharTrie are ne even if they have the same nodes.
@@ -1064,6 +1064,7 @@ class EqualityTest(unittest.TestCase):
         # pylint: disable=protected-access
         self.assertTrue(trie._root.equals(char_trie._root))
         self.assertNotEqual(trie, char_trie)
+        self.assertFalse(trie.strictly_equals(char_trie))
 
     def test_strieng_trie_eq(self):
         """Test that StringTrie takes separator into consideration."""
@@ -1071,10 +1072,13 @@ class EqualityTest(unittest.TestCase):
         trie_dot0 = pygtrie.StringTrie([('foo.bar', 42)], separator='.')
         trie_dot1 = pygtrie.StringTrie([('foo.bar', 42)], separator='.')
         self.assertEqual(trie_slash, trie_slash)
+        self.assertTrue(trie_slash.strictly_equals(trie_slash))
         # pylint: disable=protected-access
         self.assertTrue(trie_slash._root.equals(trie_dot0._root))
         self.assertNotEqual(trie_slash, trie_dot0)
+        self.assertFalse(trie_slash.strictly_equals(trie_dot0))
         self.assertEqual(trie_dot0, trie_dot1)
+        self.assertTrue(trie_dot0.strictly_equals(trie_dot1))
 
     def test_mapping_eq(self):
         """Test comparison with non-Trie mapping types."""
@@ -1101,6 +1105,11 @@ class EqualityTest(unittest.TestCase):
         char_trie = pygtrie.CharTrie([('foo/bar.baz', 42)])
         dictionary = {'foo/bar.baz': 42}
         mapping = Mapping()
+
+        all_tries = (trie_slash, trie_dot, char_trie)
+        for a in all_tries:
+            for b in all_tries:
+                self.assertEqual(a is b, a.strictly_equals(b))
 
         all_mappings = (trie_slash, trie_dot, char_trie, dictionary, mapping)
         for a in all_mappings:

@@ -1358,6 +1358,46 @@ class Trie(_abc.MutableMapping):
             pass
         return ret
 
+    def strictly_equals(self, other):
+        """Checks whether tries are equal with the same structure.
+
+        This is stricter comparison than the one performed by equality operator.
+        It not only requires for keys and values to be equal but also for the
+        two tries to be of the same type and have the same structure.
+
+        For example, for two :class:`pygtrie.StringTrie` objects to be equal,
+        they need to have the same structure as well as the same separator as
+        seen below:
+
+            >>> import pygtrie
+            >>> t0 = StringTrie({'foo/bar': 42}, separator='/')
+            >>> t1 = StringTrie({'foo.bar': 42}, separator='.')
+            >>> t0.strictly_equals(t1)
+            False
+
+            >>> t0 = StringTrie({'foo/bar.baz': 42}, separator='/')
+            >>> t1 = StringTrie({'foo/bar.baz': 42}, separator='.')
+            >>> t0 == t1
+            True
+            >>> t0.strictly_equals(t1)
+            False
+
+        Args:
+            other: Other trie to compare to.
+
+        Returns:
+            Whether the two tries are the same type and have the same structure.
+        """
+        if self is other:
+            return True
+        if type(self) != type(other):
+            return False
+        result = self._eq_impl(other)
+        if result is NotImplemented:
+            return False
+        else:
+            return result
+
     def __eq__(self, other):
         """Compares this trie’s mapping with another mapping.
 
@@ -1413,7 +1453,6 @@ class Trie(_abc.MutableMapping):
             comparison or a ``bool`` denoting whether the two objects are equal
             or not.
         """
-
         if self is other:
             return True
         if type(other) == type(self):

@@ -3,7 +3,20 @@ Version History
 
 2.5.0: TBD
 
-- Add :func:`pygtrie.Trie.merge` which merges structures of two tries.
+- Add :func:`pygtrie.Trie.merge` method which merges structures of two
+  tries.
+
+- Add :func:`pygtrie.Trie.strictly_equals` method which compares two
+  tries with stricter rules than regular equality operator.  It’s not
+  sufficient that keys and values are the same but the structure of
+  the tries must be the same as well.  For example:
+
+      >>> t0 = StringTrie({'foo/bar.baz': 42}, separator='/')
+      >>> t1 = StringTrie({'foo/bar.baz': 42}, separator='.')
+      >>> t0 == t1
+      True
+      >>> t0.strictly_equals(t1)
+      False
 
 - Fix :func:`pygtrie.Trie.__eq__` implementation such that key values
   are taken into consideration rather than just looking at trie

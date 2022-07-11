@@ -1416,7 +1416,7 @@ class Trie(_abc.MutableMapping):
 
         if self is other:
             return True
-        if isinstance(other, type(self)):
+        if type(other) == type(self):
             result = self._eq_impl(other)
             if result is not NotImplemented:
                 return result

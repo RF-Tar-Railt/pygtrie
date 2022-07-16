@@ -129,12 +129,11 @@ def get_readme_lines():
     yield '\n'
 
     with codecs.open('version-history.rst', 'r', 'utf-8') as fd:
-        min_major_version = 2
-        version_re = re.compile(r'^([0-9]+)\.[0-9.]+:')
+        version_re = re.compile(r'^([0-9]+)\.([0-9]+):')
         cleanup_re = re.compile(r':(?:class|func|const):`([^`]*)`')
         for line in fd:
             m = version_re.search(line)
-            if m and int(m.group(1)) < min_major_version:
+            if m and (int(m.group(1)), int(m.group(2))) < (2, 3):
                 break
             line, _ = cleanup_re.subn(r'``\1``', line)
             yield line

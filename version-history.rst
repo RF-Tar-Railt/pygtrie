@@ -1,7 +1,7 @@
 Version History
 ---------------
 
-2.5.0: TBD
+2.5: 2022/07/16
 
 - Add :func:`pygtrie.Trie.merge` method which merges structures of two
   tries.

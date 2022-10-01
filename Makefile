@@ -1,4 +1,4 @@
-all: test lint coverage docs
+all: test lint coverage build docs
 
 test: test2 test3
 
@@ -19,7 +19,10 @@ coverage: test.py pygtrie.py
 	cov=$$(which python-coverage) && \
 	"$$cov" run $< && "$$cov" report -m
 
+build:
+	python3 -m build -swn
+
 docs:
 	python3 setup.py build_doc
 
-.PHONY: all test test2 test3 lint coverage docs
+.PHONY: all test test2 test3 lint coverage build docs

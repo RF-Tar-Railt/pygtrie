@@ -72,9 +72,8 @@ prefixes['/baz'] = lambda url: sys.stdout.write('Baz handler: %s\n' % url)
 
 for url in ('/', '/foo', '/foot', '/foobar', 'invalid', '/foobarbaz', '/ba'):
     step = prefixes.longest_prefix(url)
-    key, handler = step.key, step.value
-    if handler is not None:
-        handler(url)
+    if step:
+        step.value(url)
     else:
         print('Unable to handle', repr(url))
 

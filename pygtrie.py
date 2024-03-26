@@ -120,10 +120,10 @@ class _NoChildren(Children[_VT]):
 
     __slots__ = ()
 
-    def __bool__(self):
+    def __bool__(self) -> Literal[False]:
         return False
 
-    def __len__(self):
+    def __len__(self) -> Literal[0]:
         return 0
 
     def __iter__(self):
@@ -177,10 +177,10 @@ class _OneChild(Children[_VT]):
         self.step = step
         self.node = node
 
-    def __bool__(self):
+    def __bool__(self) -> Literal[True]:
         return True
 
-    def __len__(self):
+    def __len__(self) -> Literal[1]:
         return 1
 
     def items(self):
@@ -609,7 +609,7 @@ class _NoneStep(Step[None, None]):
 
     __slots__ = ()
 
-    def __bool__(self):
+    def __bool__(self) -> Literal[False]:
         return False
 
     def get(self, default=None):
@@ -648,7 +648,7 @@ class _Step(Step[str, V], Generic[V]):
         self._pos = pos
         self._node = node
 
-    def __bool__(self):
+    def __bool__(self) -> Literal[True]:
         return True
 
     @property
@@ -795,7 +795,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
             for key, value in _iteritems(other):  # type: ignore
                 self[key] = value
             other = ()
-        super().update(other, **kwargs)  # type: ignore
+        super().update(other or (), **kwargs)  # type: ignore
 
     def merge(self, other: "Trie[V]", overwrite: bool = False):
         """Moves nodes from other trie into this one.
@@ -1295,7 +1295,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
     ) -> Union[V1, None]: ...
     @overload
     def setdefault(self, key: str, default: V) -> V: ...
-    def setdefault(self, key: str, default: V | None = None):  # type: ignore
+    def setdefault(self, key: str, default: Union[V, None] = None):  # type: ignore
         """Sets value of a given node if not set already.  Also returns it.
 
         In contrast to :func:`Trie.__setitem__`, this method does not accept

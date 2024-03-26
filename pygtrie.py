@@ -916,7 +916,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
         for step in self.__path_from_key(key):
             # pylint thinks node.children is always _NoChildren and thus that
             # we’re assigning None here; pylint: disable=assignment-from-none
-            if not (_node := node.children.get(step)):
+            if (_node := node.children.get(step)) is None:
                 raise KeyError(key)
             node = _node
             trace.append((step, node))

@@ -3,6 +3,7 @@
 """trie module example code."""
 
 from __future__ import absolute_import, division, print_function
+from typing import Callable
 
 __author__ = 'Michal Nazarewicz <mina86@mina86.com>'
 __copyright__ = 'Copyright 2014 Google LLC'
@@ -23,7 +24,7 @@ SUB_DIR = os.path.join(ROOT_DIR, 'lib')
 SUB_DIRS = tuple(os.path.join(ROOT_DIR, d)
                  for d in ('lib', 'lib32', 'lib64', 'share'))
 
-paths = pygtrie.StringTrie(separator=os.path.sep)
+paths: pygtrie.StringTrie[int] = pygtrie.StringTrie(separator=os.path.sep)
 
 # Read sizes regular files into a Trie
 for dirpath, unused_dirnames, filenames in os.walk(ROOT_DIR):
@@ -63,16 +64,17 @@ for directory in SUB_DIRS:
 print('\nStoring URL handlers map')
 print('========================\n')
 
-prefixes = pygtrie.CharTrie()
+prefixes: pygtrie.CharTrie[Callable[[str], int]] = pygtrie.CharTrie()
 prefixes['/'] = lambda url: sys.stdout.write('Root handler: %s\n' % url)
 prefixes['/foo'] = lambda url: sys.stdout.write('Foo handler: %s\n' % url)
 prefixes['/foobar'] = lambda url: sys.stdout.write('FooBar handler: %s\n' % url)
 prefixes['/baz'] = lambda url: sys.stdout.write('Baz handler: %s\n' % url)
 
 for url in ('/', '/foo', '/foot', '/foobar', 'invalid', '/foobarbaz', '/ba'):
-    key, handler = prefixes.longest_prefix(url)
-    if key is not None:
-        handler(url)  # It is callable, stfu pylint: disable=not-callable
+    step = prefixes.longest_prefix(url)
+    key, handler = step.key, step.value
+    if handler is not None:
+        handler(url)
     else:
         print('Unable to handle', repr(url))
 

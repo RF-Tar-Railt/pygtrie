@@ -36,14 +36,38 @@ Features
 For a few simple examples see ``example.py`` file.
 """
 
-__author__ = 'Michal Nazarewicz <mina86@mina86.com>'
-__copyright__ = ('Copyright 2014-2017 Google LLC',
-                 'Copyright 2018-2020 Michal Nazarewicz <mina86@mina86.com>')
+__author__ = "Michal Nazarewicz <mina86@mina86.com>"
+__copyright__ = (
+    "Copyright 2014-2017 Google LLC",
+    "Copyright 2018-2020 Michal Nazarewicz <mina86@mina86.com>",
+)
 # __version__ = '' # set by setup.py sdist or build
 
 
-import copy as _copy
 import collections.abc as _abc
+import copy as _copy
+import enum
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Final,
+    Generator,
+    Generic,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Protocol,
+    SupportsIndex,
+    Tuple,
+    TypeVar,
+    Union,
+    overload,
+)
+
+from typing_extensions import Self
 
 
 class ShortKeyError(KeyError):
@@ -51,7 +75,40 @@ class ShortKeyError(KeyError):
     but does not have a value associated with itself."""
 
 
-class _NoChildren:
+T = TypeVar("T")
+_VT = TypeVar("_VT")
+T_Copy = Callable[[T], T]
+
+
+class Children(Protocol[_VT]):
+
+    def __bool__(self) -> bool: ...
+    def __len__(self) -> int: ...
+
+    def items(self) -> Iterable[Tuple[str, "_Node[_VT]"]]: ...
+
+    def sorted_items(self) -> Iterable[Tuple[str, "_Node[_VT]"]]: ...
+
+    def pick(self) -> Tuple[str, "_Node[_VT]"]: ...
+
+    def get(self, step: str) -> "_Node[_VT] | None": ...
+
+    def add(self, parent: "_Node[_VT]", step: str) -> "_Node[_VT]": ...
+
+    def require(self, parent: "_Node[_VT]", step: str) -> "_Node[_VT]": ...
+
+    def merge(
+        self, other: "Children[_VT]", queue: List[Tuple["_Node[_VT]", ...]]
+    ) -> "Children[_VT]": ...
+
+    def delete(self, parent: "_Node[_VT]", step: str) -> None: ...
+
+    def copy(
+        self: Self, make_copy: T_Copy, queue: List[Tuple["_Node[_VT]", ...]]
+    ) -> Self: ...
+
+
+class _NoChildren(Children[_VT]):
     """Collection representing lack of any children.
 
     Also acts as an empty iterable and an empty iterator.  This isn’t the
@@ -60,28 +117,43 @@ class _NoChildren:
 
     Don’t create objects of this type directly; instead use _EMPTY singleton.
     """
+
     __slots__ = ()
 
     def __bool__(self):
         return False
+
     def __len__(self):
         return 0
 
     def __iter__(self):
         return self
+
     def __next__(self):
         raise StopIteration()
+
     items = sorted_items = __iter__
 
-    def get(self, _step):
+    def pick(self) -> Tuple[str, "_Node[_VT]"]:
+        raise NotImplementedError()
+
+    def get(self, _step: str):
         return None
 
-    def add(self, parent, step):
-        node = _Node()
+    def add(self, parent: "_Node[_VT]", step: str):
+        node: "_Node[_VT]" = _Node()
         parent.children = _OneChild(step, node)
         return node
 
     require = add
+
+    def merge(
+        self, other: "Children[_VT]", queue: List[Tuple["_Node[_VT]", ...]]
+    ) -> "Children[_VT]":
+        return other
+
+    def delete(self, parent: "_Node[_VT]", step: str) -> None:
+        return
 
     def copy(self, _make_copy, _queue):
         return self
@@ -93,25 +165,27 @@ class _NoChildren:
     # called on a node with no children.
 
 
-_EMPTY = _NoChildren()
+_EMPTY: Final[_NoChildren] = _NoChildren()
 
 
-class _OneChild:
+class _OneChild(Children[_VT]):
     """Children collection representing a single child."""
 
-    __slots__ = ('step', 'node')
+    __slots__ = ("step", "node")
 
-    def __init__(self, step, node):
+    def __init__(self, step: str, node: "_Node[_VT]"):
         self.step = step
         self.node = node
 
     def __bool__(self):
         return True
+
     def __len__(self):
         return 1
 
     def items(self):
         return ((self.step, self.node),)
+
     sorted_items = items
 
     def pick(self):
@@ -120,12 +194,12 @@ class _OneChild:
     def get(self, step):
         return self.node if step == self.step else None
 
-    def add(self, parent, step):
-        node = _Node()
+    def add(self, parent: "_Node[_VT]", step: str):
+        node: "_Node[_VT]" = _Node()
         parent.children = _Children((self.step, self.node), (step, node))
         return node
 
-    def require(self, parent, step):
+    def require(self, parent: "_Node[_VT]", step: str):
         return self.node if self.step == step else self.add(parent, step)
 
     def merge(self, other, queue):
@@ -138,7 +212,7 @@ class _OneChild:
             children.merge(other, queue)
             return children
 
-    def delete(self, parent, _step):
+    def delete(self, parent, step):
         parent.children = _EMPTY
 
     def copy(self, make_copy, queue):
@@ -147,13 +221,22 @@ class _OneChild:
         return cpy
 
 
-class _Children(dict):
+class _Children(Children[_VT]):
     """Children collection representing more than one child."""
 
-    __slots__ = ()
+    __slots__ = ("data",)
 
-    def __init__(self, *items):
-        super().__init__(items)
+    def __init__(self, *items: Tuple[str, "_Node[_VT]"]):
+        self.data = dict(items)
+
+    def __bool__(self) -> bool:
+        return bool(self.data)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def items(self):
+        return self.data.items()
 
     def sorted_items(self):
         return sorted(self.items())
@@ -161,46 +244,77 @@ class _Children(dict):
     def pick(self):
         return next(iter(self.items()))
 
-    def add(self, _parent, step):
-        self[step] = node = _Node()
+    def get(self, step: str) -> "_Node[_VT] | None":
+        return self.data.get(step)
+
+    def add(self, _parent: "_Node[_VT]", step: str):
+        self.data[step] = node = _Node()
         return node
 
-    def require(self, _parent, step):
-        return self.setdefault(step, _Node())
+    def require(self, _parent: "_Node[_VT]", step: str):
+        return self.data.setdefault(step, _Node())
 
     def merge(self, other, queue):
         """Moves children from other into this object."""
         for step, other_node in other.items():
-            node = self.setdefault(step, other_node)
+            node = self.data.setdefault(step, other_node)
             if node is not other_node:
                 queue.append((node, other_node))
         return self
 
     def delete(self, parent, step):
-        del self[step]
+        del self.data[step]
         if len(self) == 1:
-            parent.children = _OneChild(*self.popitem())
+            parent.children = _OneChild(*self.data.popitem())
 
     def copy(self, make_copy, queue):
         cpy = _Children()
-        cpy.update((make_copy(step), node.shallow_copy(make_copy))
-                   for step, node in self.items())
-        queue.append(cpy.values())
+        cpy.data.update(
+            (make_copy(step), node.shallow_copy(make_copy))
+            for step, node in self.items()
+        )
+        queue.append(tuple(cpy.data.values()))
         return cpy
 
 
-class _Node:
+V = TypeVar("V")
+V1 = TypeVar("V1")
+
+
+class _SentinelClass(enum.Enum):
+    _Sentinel = object()
+
+
+_SENTINEL: Final = _SentinelClass._Sentinel
+
+
+T_Iteritems = Callable[[Children[T]], Iterable[Tuple[str, "_Node[T]"]]]
+
+PathConv = Callable[[Tuple[str, ...]], str]
+NodeFactory = Callable[
+    [
+        Callable[[Tuple[str, ...]], str],
+        Tuple[str, ...],
+        Generator["_Node[T]", None, None],
+        Optional[T],
+    ],
+    "_Node[T]",
+]
+
+
+class _Node(Generic[V]):
     """A single node of a trie.
 
     Stores value associated with the node and dictionary of children.
     """
-    __slots__ = ('children', 'value')
+
+    __slots__ = ("children", "value")
 
     def __init__(self):
-        self.children = _EMPTY
-        self.value = _EMPTY
+        self.children: Children[V] = _EMPTY
+        self.value: Union[V, Literal[_SENTINEL]] = _SENTINEL
 
-    def merge(self, other, overwrite):
+    def merge(self, other: "_Node[V]", overwrite: bool):
         """Move children from other node into this one.
 
         Args:
@@ -210,7 +324,7 @@ class _Node:
         queue = [(self, other)]
         while queue:
             lhs, rhs = queue.pop()
-            if lhs.value is _EMPTY or (overwrite and rhs.value is not _EMPTY):
+            if lhs.value is _SENTINEL or (overwrite and rhs.value is not _SENTINEL):
                 lhs.value = rhs.value
             if lhs.children is _EMPTY:
                 lhs.children = rhs.children
@@ -218,7 +332,9 @@ class _Node:
                 lhs.children = lhs.children.merge(rhs.children, queue)
             rhs.children = _EMPTY
 
-    def iterate(self, path, shallow, items):
+    def iterate(
+        self, path: List[str], shallow: bool, items: T_Iteritems[V]
+    ) -> Generator[Tuple[List[str], V], Any, None]:
         """Yields all the nodes with values associated to them in the trie.
 
         Args:
@@ -237,14 +353,14 @@ class _Node:
         # Use iterative function with stack on the heap so we don't hit Python's
         # recursion depth limits.
         node = self
-        stack = []
+        stack: List[Iterator[Tuple[str, _Node[V]]]] = []
         while True:
-            if node.value is not _EMPTY:
+            if node.value is not _SENTINEL:
                 yield path, node.value
 
-            if (not shallow or node.value is _EMPTY) and node.children:
+            if (not shallow or node.value is _SENTINEL) and node.children:
                 stack.append(iter(items(node.children)))
-                path.append(None)
+                path.append("")
 
             while True:
                 try:
@@ -257,7 +373,13 @@ class _Node:
                 except IndexError:
                     return
 
-    def traverse(self, node_factory, path_conv, path, items):
+    def traverse(
+        self,
+        node_factory: NodeFactory[V],
+        path_conv: PathConv,
+        path: List[str],
+        items: T_Iteritems[V],
+    ):
         """Traverses the node and returns another type of node from factory.
 
         Args:
@@ -276,19 +398,22 @@ class _Node:
             correspondence between original nodes in the trie and constructed
             nodes (see make_test_node_and_compress in test.py).
         """
-        children = self.children and (
+        children = (
             node.traverse(node_factory, path_conv, path + [step], items)
-            for step, node in items(self.children))
+            for step, node in items(self.children)
+        )
 
-        value_maybe = ()
-        if self.value is not _EMPTY:
-            value_maybe = (self.value,)
+        value_maybe = None
+        if self.value is not _SENTINEL:
+            value_maybe = self.value
 
-        return node_factory(path_conv, tuple(path), children, *value_maybe)
+        return node_factory(path_conv, tuple(path), children, value_maybe)
 
-    def equals(self, other):
+    def equals(self, other: "_Node[V]"):
         """Returns whether this and other node are recursively equal."""
         # Like iterate, we don't recurse so this works on deep tries.
+        if not isinstance(other, _Node):
+            return False
         a, b = self, other
         stack = []
         while True:
@@ -297,6 +422,9 @@ class _Node:
             if len(a.children) == 1:
                 # We know a.children and b.children are both _OneChild objects
                 # but pylint doesn’t recognise that: pylint: disable=no-member
+                if TYPE_CHECKING:
+                    assert isinstance(a.children, _OneChild)
+                    assert isinstance(b.children, _OneChild)
                 if a.children.step != b.children.step:
                     return False
                 a = a.children.node
@@ -317,16 +445,20 @@ class _Node:
                 except KeyError:
                     return False
 
-    __bool__ = __hash__ = None
+    def __bool__(self):
+        raise NotImplementedError()
 
-    def shallow_copy(self, make_copy):
+    def __hash__(self):
+        raise NotImplementedError()
+
+    def shallow_copy(self, make_copy: T_Copy) -> "_Node[V]":
         """Returns a copy of the node which shares the children property."""
         cpy = _Node()
         cpy.children = self.children
         cpy.value = make_copy(self.value)
         return cpy
 
-    def copy(self, make_copy):
+    def copy(self, make_copy: T_Copy) -> "_Node[V]":
         """Returns a copy of the node structure."""
         cpy = self.shallow_copy(make_copy)
         queue = [(cpy,)]
@@ -374,12 +506,12 @@ class _Node:
             to reconstruct the node and its full hierarchy.
         """
         # Like iterate, we don't recurse so pickling works on deep tries.
-        state = [] if self.value is _EMPTY else [0]
+        state: list = [] if self.value is _SENTINEL else [0]
         last_cmd = 0
         node = self
         stack = []
         while True:
-            if node.value is not _EMPTY:
+            if node.value is not _SENTINEL:
                 last_cmd = 0
                 state.append(node.value)
             stack.append(iter(node.children.items()))
@@ -411,7 +543,7 @@ class _Node:
         """Unpickles node.  See :func:`_Node.__getstate__`."""
         self.__init__()
         state = iter(state)
-        stack = [self]
+        stack: List[_Node[V]] = [self]
         for cmd in state:
             if cmd < 0:
                 del stack[cmd:]
@@ -423,7 +555,162 @@ class _Node:
                 stack[-1].value = next(state)
 
 
-class Trie(_abc.MutableMapping):
+_KT = TypeVar("_KT", covariant=True)
+
+
+class Step(Protocol[_KT, _VT]):
+    def __bool__(self) -> bool: ...
+
+    @overload
+    def get(self) -> Union[_VT, None]: ...
+    @overload
+    def get(self, default: _VT) -> _VT: ...
+
+    def set(self, value: _VT) -> None: ...
+
+    def setdefault(self, value: _VT) -> _VT: ...
+
+    @property
+    def is_set(self) -> bool: ...
+
+    @property
+    def has_subtrie(self) -> bool: ...
+
+    @property
+    def key(self) -> _KT: ...
+
+    @property
+    def value(self) -> _VT: ...
+
+    def __getitem__(self, index: SupportsIndex) -> Union[_KT, _VT]:
+        """Makes object appear like a (key, value) tuple.
+
+        This is deprecated and for backwards-compatibility only.  Prefer
+        using ``key`` and ``value`` properties directly.
+
+        Args:
+            index: Element index to return.  Zero for key, one for value.
+
+        Returns:
+            ``self.key`` if index is ``0``, ``self.value`` if it's ``1``.
+            Otherwise raises an IndexError exception.
+
+        Raises:
+            IndexError: if index is not 0 or 1.
+            KeyError: if index is 1 but node has no value assigned.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+class _NoneStep(Step[None, None]):
+    """Representation of a non-existent step towards non-existent node."""
+
+    __slots__ = ()
+
+    def __bool__(self):
+        return False
+
+    def get(self, default=None):
+        return default
+
+    def set(self, value):
+        return
+
+    def setdefault(self, value):
+        return value
+
+    is_set = has_subtrie = property(__bool__)
+    key = value = property(lambda self: None)
+
+    def __getitem__(self, index):
+        if index == 0:
+            return self.key
+        if index == 1:
+            return self.value
+        raise IndexError("index out of range")
+
+    def __repr__(self):
+        return "(None Step)"
+
+
+class _Step(Step[str, V], Generic[V]):
+    """Representation of a single step on a path towards particular node."""
+
+    __slots__ = ("_trie", "_path", "_pos", "_node", "__key")
+
+    def __init__(
+        self, trie: "Trie[V]", path: Iterable[str], pos: int, node: "_Node[V]"
+    ):
+        self._trie = trie
+        self._path = path
+        self._pos = pos
+        self._node = node
+
+    def __bool__(self):
+        return True
+
+    @property
+    def is_set(self):
+        """Returns whether the node has value assigned to it."""
+        return self._node.value is not _SENTINEL
+
+    @property
+    def has_subtrie(self):
+        """Returns whether the node has any children."""
+        return bool(self._node.children)
+
+    def get(self, default=None):
+        """Returns node's value or the default if value is not assigned."""
+        v = self._node.value
+        return default if v is _SENTINEL else v
+
+    def set(self, value: V):
+        """Deprecated.  Use ``step.value = value`` instead."""
+        self._node.value = value
+
+    def setdefault(self, value: V) -> V:
+        """Assigns value to the node if one is not set then returns it."""
+        if self._node.value is _SENTINEL:
+            self._node.value = value
+        return self._node.value
+
+    def __repr__(self):
+        return f"({self.key!r}, {self.value!r})"
+
+    @property
+    def key(self) -> str:
+        """Returns key of the node."""
+        if not hasattr(self, "_Step__key"):
+            # pylint:disable=protected-access,attribute-defined-outside-init
+            self.__key = self._trie._key_from_path(list(self._path)[: self._pos])
+        return self.__key
+
+    @property
+    def value(self) -> V:
+        """Returns node's value or raises KeyError."""
+        v = self._node.value
+        if v is _SENTINEL:
+            raise ShortKeyError(self.key)
+        return v
+
+    @value.setter
+    def value(self, value: V):
+        self._node.value = value
+
+    def __getitem__(self, index):
+        if index == 0:
+            return self.key
+        if index == 1:
+            return self.value
+        raise IndexError("index out of range")
+
+
+_NONE_STEP = _NoneStep()
+
+
+class Trie(_abc.MutableMapping[str, V], Generic[V]):
     """A trie implementation with dict interface plus some extensions.
 
     Keys used with the :class:`pygtrie.Trie` class must be iterable which each
@@ -437,17 +724,25 @@ class Trie(_abc.MutableMapping):
     preferred when using string keys.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        other: Union[_abc.MutableMapping[str, V], Iterable[Tuple[str, V]], None] = None,
+        /,
+        **kwargs: V,
+    ):
         """Initialises the trie.
 
         Arguments are interpreted the same way :func:`Trie.update` interprets
         them.
         """
-        self._root = _Node()
+        self._root: _Node[V] = _Node()
         self._items_callback = self._ITEMS_CALLBACKS[0]
-        self.update(*args, **kwargs)
+        self.update(other, **kwargs)
 
-    _ITEMS_CALLBACKS = (lambda x: x.items(), lambda x: x.sorted_items())
+    _ITEMS_CALLBACKS: Tuple[T_Iteritems[V], T_Iteritems[V]] = (
+        lambda x: x.items(),
+        lambda x: x.sorted_items(),
+    )
 
     def enable_sorting(self, enable=True):
         """Enables sorting of child nodes when iterating and traversing.
@@ -475,37 +770,34 @@ class Trie(_abc.MutableMapping):
     def __getstate__(self):
         # encode self._items_callback as self._sorted when pickling
         state = self.__dict__.copy()
-        callback = state.pop('_items_callback', None)
-        state['_sorted'] = callback is self._ITEMS_CALLBACKS[1]
+        callback = state.pop("_items_callback", None)
+        state["_sorted"] = callback is self._ITEMS_CALLBACKS[1]
         return state
 
     def __setstate__(self, state):
         # translate self._sorted back to _items_callback when unpickling
         self.__dict__ = state
-        self.enable_sorting(state.pop('_sorted'))
+        self.enable_sorting(state.pop("_sorted"))
 
     def clear(self):
         """Removes all the values from the trie."""
+        del self._root.children
         self._root = _Node()
 
-    def update(self, *args, **kwargs):  # pylint: disable=arguments-differ
+    def update(
+        self,
+        other: Union[_abc.MutableMapping[str, V], Iterable[Tuple[str, V]], None] = None,
+        /,
+        **kwargs: V,
+    ):
         """Updates stored values.  Works like :meth:`dict.update`."""
-        if len(args) > 1:
-            raise ValueError('update() takes at most one positional argument, '
-                             '%d given.' % len(args))
-        # We have this here instead of just letting MutableMapping.update()
-        # handle things because it will iterate over keys and for each key
-        # retrieve the value.  With Trie, this may be expensive since the path
-        # to the node would have to be walked twice.  Instead, we have our own
-        # implementation where iteritems() is used avoiding the unnecessary
-        # value look-up.
-        if args and isinstance(args[0], Trie):
-            for key, value in args[0].items():
+        if other and isinstance(other, _abc.MutableMapping):
+            for key, value in _iteritems(other):  # type: ignore
                 self[key] = value
-            args = ()
-        super().update(*args, **kwargs)
+            other = ()
+        super().update(other, **kwargs)  # type: ignore
 
-    def merge(self, other, overwrite=False):
+    def merge(self, other: "Trie[V]", overwrite: bool = False):
         """Moves nodes from other trie into this one.
 
         The merging happens at trie structure level and as such is different
@@ -543,10 +835,14 @@ class Trie(_abc.MutableMapping):
             other: Other trie to move nodes from.
             overwrite: Whether to overwrite existing values in this trie.
         """
+        if not isinstance(other, Trie):
+            raise TypeError("Can only merge tries with other tries.")
         if isinstance(self, type(other)):
             self._merge_impl(self, other, overwrite=overwrite)
         else:
-            other._merge_impl(self, other, overwrite=overwrite) # pylint: disable=protected-access
+            other._merge_impl(
+                self, other, overwrite=overwrite
+            )  # pylint: disable=protected-access
         other.clear()
 
     @classmethod
@@ -554,7 +850,7 @@ class Trie(_abc.MutableMapping):
         # pylint: disable=protected-access
         dst._root.merge(src._root, overwrite=overwrite)
 
-    def copy(self, __make_copy=lambda x: x):
+    def copy(self, __make_copy: T_Copy = lambda x: x):
         """Returns a shallow copy of the object."""
         # pylint: disable=protected-access
         cpy = self.__class__()
@@ -569,7 +865,15 @@ class Trie(_abc.MutableMapping):
         return self.copy(lambda x: _copy.deepcopy(x, memo))
 
     @classmethod
-    def fromkeys(cls, keys, value=None):
+    @overload
+    def fromkeys(
+        cls, keys: Iterable[str], value: None = None
+    ) -> "Trie[Any | None]": ...
+    @classmethod
+    @overload
+    def fromkeys(cls, keys: Iterable[str], value: V1) -> "Trie[V1]": ...
+    @classmethod
+    def fromkeys(cls, keys: Iterable[str], value: Any = None) -> "Trie[Any]":
         """Creates a new trie with given keys set.
 
         This is roughly equivalent to calling the constructor with a ``(key,
@@ -588,7 +892,9 @@ class Trie(_abc.MutableMapping):
             trie[key] = value
         return trie
 
-    def _get_node(self, key):
+    def _get_node(
+        self, key: Union[str, Literal[_SENTINEL]]
+    ) -> Tuple[_Node[V], List[Union[Tuple[None, _Node[V]], Tuple[str, _Node[V]]]]]:
         """Returns node for given key.  Creates it if requested.
 
         Args:
@@ -605,18 +911,18 @@ class Trie(_abc.MutableMapping):
         Raises:
             KeyError: If there is no node for the key.
         """
-        node = self._root
-        trace = [(None, node)]
+        node: _Node[V] = self._root
+        trace: List[Union[Tuple[None, _Node[V]], Tuple[str, _Node[V]]]] = [(None, node)]
         for step in self.__path_from_key(key):
             # pylint thinks node.children is always _NoChildren and thus that
             # we’re assigning None here; pylint: disable=assignment-from-none
-            node = node.children.get(step)
-            if node is None:
+            if not (_node := node.children.get(step)):
                 raise KeyError(key)
+            node = _node
             trace.append((step, node))
         return node, trace
 
-    def _set_node(self, key, value, only_if_missing=False):
+    def _set_node(self, key: str, value: V, only_if_missing: bool = False) -> _Node[V]:
         """Sets value for a given key.
 
         Args:
@@ -631,11 +937,11 @@ class Trie(_abc.MutableMapping):
         node = self._root
         for step in self.__path_from_key(key):
             node = node.children.require(node, step)
-        if node.value is _EMPTY or not only_if_missing:
+        if node.value is _SENTINEL or not only_if_missing:
             node.value = value
         return node
 
-    def _set_node_if_no_prefix(self, key):
+    def _set_node_if_no_prefix(self: "Trie[bool]", key: str):
         """Sets given key to True but only if none of its prefixes are present.
 
         If value is set, removes all ancestors of the node.
@@ -648,7 +954,7 @@ class Trie(_abc.MutableMapping):
         steps = iter(self.__path_from_key(key))
         node = self._root
         try:
-            while node.value is _EMPTY:
+            while node.value is _SENTINEL:
                 node = node.children.require(node, next(steps))
         except StopIteration:
             node.value = True
@@ -659,7 +965,9 @@ class Trie(_abc.MutableMapping):
 
     # pylint: disable=arguments-differ
 
-    def iteritems(self, prefix=_EMPTY, shallow=False):
+    def iteritems(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Yields all nodes with associated values with given prefix.
 
         Only nodes with values are output.  For example::
@@ -701,11 +1009,14 @@ class Trie(_abc.MutableMapping):
             KeyError: If ``prefix`` does not match any node.
         """
         node, _ = self._get_node(prefix)
-        for path, value in node.iterate(list(self.__path_from_key(prefix)),
-                                        shallow, self._items_callback):
+        for path, value in node.iterate(
+            list(self.__path_from_key(prefix)), shallow, self._items_callback
+        ):
             yield (self._key_from_path(path), value)
 
-    def iterkeys(self, prefix=_EMPTY, shallow=False):
+    def iterkeys(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Yields all keys having associated values with given prefix.
 
         This is equivalent to taking first element of tuples generated by
@@ -725,7 +1036,9 @@ class Trie(_abc.MutableMapping):
         for key, _ in self.iteritems(prefix=prefix, shallow=shallow):
             yield key
 
-    def itervalues(self, prefix=_EMPTY, shallow=False):
+    def itervalues(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Yields all values associated with keys with given prefix.
 
         This is equivalent to taking second element of tuples generated by
@@ -743,11 +1056,14 @@ class Trie(_abc.MutableMapping):
             KeyError: If ``prefix`` does not match any node.
         """
         node, _ = self._get_node(prefix)
-        for _, value in node.iterate(list(self.__path_from_key(prefix)),
-                                     shallow, self._items_callback):
+        for _, value in node.iterate(
+            list(self.__path_from_key(prefix)), shallow, self._items_callback
+        ):
             yield value
 
-    def items(self, prefix=_EMPTY, shallow=False):
+    def items(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Returns a list of ``(key, value)`` pairs in given subtrie.
 
         This is equivalent to constructing a list from generator returned by
@@ -755,7 +1071,9 @@ class Trie(_abc.MutableMapping):
         """
         return list(self.iteritems(prefix=prefix, shallow=shallow))
 
-    def keys(self, prefix=_EMPTY, shallow=False):
+    def keys(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Returns a list of all the keys, with given prefix, in the trie.
 
         This is equivalent to constructing a list from generator returned by
@@ -763,7 +1081,9 @@ class Trie(_abc.MutableMapping):
         """
         return list(self.iterkeys(prefix=prefix, shallow=shallow))
 
-    def values(self, prefix=_EMPTY, shallow=False):
+    def values(
+        self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
+    ):
         """Returns a list of values in given subtrie.
 
         This is equivalent to constructing a list from generator returned by
@@ -779,14 +1099,14 @@ class Trie(_abc.MutableMapping):
         return sum(1 for _ in self.itervalues())
 
     def __bool__(self):
-        return self._root.value is not _EMPTY or bool(self._root.children)
+        return self._root.value is not _SENTINEL or bool(self._root.children)
 
     __hash__ = None
 
     HAS_VALUE = 1
     HAS_SUBTRIE = 2
 
-    def has_node(self, key):
+    def has_node(self, key: str):
         """Returns whether given node is in the trie.
 
         Return value is a bitwise or of ``HAS_VALUE`` and ``HAS_SUBTRIE``
@@ -834,23 +1154,30 @@ class Trie(_abc.MutableMapping):
             node, _ = self._get_node(key)
         except KeyError:
             return 0
-        return ((self.HAS_VALUE * (node.value is not _EMPTY)) |
-                (self.HAS_SUBTRIE * bool(node.children)))
+        return (self.HAS_VALUE * (node.value is not _SENTINEL)) | (
+            self.HAS_SUBTRIE * bool(node.children)
+        )
 
-    def has_key(self, key):
+    def has_key(self, key: str):
         """Indicates whether given key has value associated with it.
 
         See :func:`Trie.has_node` for more detailed documentation.
         """
         return bool(self.has_node(key) & self.HAS_VALUE)
 
-    def has_subtrie(self, key):
+    def has_subtrie(self, key: str):
         """Returns whether given key is a prefix of another key in the trie.
 
         See :func:`Trie.has_node` for more detailed documentation.
         """
         return bool(self.has_node(key) & self.HAS_SUBTRIE)
 
+    @staticmethod
+    @overload
+    def _slice_maybe(key_or_slice: str) -> Tuple[str, Literal[False]]: ...
+    @staticmethod
+    @overload
+    def _slice_maybe(key_or_slice: slice) -> Tuple[str, Literal[True]]: ...
     @staticmethod
     def _slice_maybe(key_or_slice):
         """Checks whether argument is a slice or a plain key.
@@ -873,7 +1200,12 @@ class Trie(_abc.MutableMapping):
             return key_or_slice.start, True
         return key_or_slice, False
 
-    def __getitem__(self, key_or_slice):
+    @overload
+    def __getitem__(self, key_or_slice: str) -> V: ...
+
+    @overload
+    def __getitem__(self, key_or_slice: slice) -> Generator[V, Any, None]: ...
+    def __getitem__(self, key_or_slice: Union[str, slice]):
         """Returns value associated with given key or raises KeyError.
 
         When argument is a single key, value for that key is returned (or
@@ -916,14 +1248,17 @@ class Trie(_abc.MutableMapping):
             TypeError: If ``key_or_slice`` is a slice but it's stop or step are
                 not ``None``.
         """
-        if self._slice_maybe(key_or_slice)[1]:
-            return self.itervalues(key_or_slice.start)
+        start, is_slice = self._slice_maybe(key_or_slice)
+        if is_slice:
+            return self.itervalues(start)
+        if TYPE_CHECKING:
+            assert isinstance(key_or_slice, str)
         node, _ = self._get_node(key_or_slice)
-        if node.value is _EMPTY:
+        if node.value is _SENTINEL:
             raise ShortKeyError(key_or_slice)
         return node.value
 
-    def __setitem__(self, key_or_slice, value):
+    def __setitem__(self, key_or_slice: Union[str, slice], value: V):
         """Sets value associated with given key.
 
         If `key_or_slice` is a key, simply associate it with given value.  If it
@@ -954,16 +1289,22 @@ class Trie(_abc.MutableMapping):
         if is_slice:
             node.children = _EMPTY
 
-    def setdefault(self, key, default=None):
+    @overload
+    def setdefault(
+        self: "Trie[V1 | None]", key: str, default: None = None
+    ) -> Union[V1, None]: ...
+    @overload
+    def setdefault(self, key: str, default: V) -> V: ...
+    def setdefault(self, key: str, default: V | None = None):  # type: ignore
         """Sets value of a given node if not set already.  Also returns it.
 
         In contrast to :func:`Trie.__setitem__`, this method does not accept
         slice as a key.
         """
-        return self._set_node(key, default, only_if_missing=True).value
+        return self._set_node(key, default, only_if_missing=True).value  # type: ignore
 
     @staticmethod
-    def _pop_value(trace):
+    def _pop_value(trace: List[Union[Tuple[None, _Node[V]], Tuple[str, _Node[V]]]]):
         """Removes value from given node and removes any empty nodes.
 
         Args:
@@ -977,16 +1318,17 @@ class Trie(_abc.MutableMapping):
             place.
         """
         i = len(trace) - 1  # len(path) >= 1 since root is always there
-        step, node = trace[i]
-        value, node.value = node.value, _EMPTY
-        while i and node.value is _EMPTY and not node.children:
+        _trace: List[Tuple[str, _Node[V]]] = trace  # type: ignore
+        step, node = _trace[i]
+        value, node.value = node.value, _SENTINEL
+        while i and node.value is _SENTINEL and not node.children:
             i -= 1
-            parent_step, parent = trace[i]
+            parent_step, parent = _trace[i]
             parent.children.delete(parent, step)
             step, node = parent_step, parent
         return value
 
-    def pop(self, key, default=_EMPTY):
+    def pop(self, key: str, default: Union[V, Literal[_SENTINEL]] = _SENTINEL) -> V:
         """Deletes value associated with given key and returns it.
 
         Args:
@@ -1010,13 +1352,13 @@ class Trie(_abc.MutableMapping):
         try:
             _, trace = self._get_node(key)
         except KeyError:
-            if default is not _EMPTY:
+            if default is not _SENTINEL:
                 return default
             raise
         value = self._pop_value(trace)
-        if value is not _EMPTY:
+        if value is not _SENTINEL:
             return value
-        if default is not _EMPTY:
+        if default is not _SENTINEL:
             return default
         raise ShortKeyError()
 
@@ -1035,14 +1377,15 @@ class Trie(_abc.MutableMapping):
         if not self:
             raise KeyError()
         node = self._root
-        trace = [(None, node)]
-        while node.value is _EMPTY:
+        trace: List[Union[Tuple[None, _Node[V]], Tuple[str, _Node[V]]]] = [(None, node)]
+        while node.value is _SENTINEL:
             step, node = node.children.pick()
             trace.append((step, node))
-        key = self._key_from_path((step for step, _ in trace[1:]))
+        _trace: List[Tuple[str, _Node[V]]] = trace[1:]  # type: ignore
+        key = self._key_from_path((step for step, _ in _trace))
         return key, self._pop_value(trace)
 
-    def __delitem__(self, key_or_slice):
+    def __delitem__(self, key_or_slice: Union[str, slice]):
         """Deletes value associated with given key or raises KeyError.
 
         If argument is a key, value associated with it is deleted.  If the key
@@ -1080,115 +1423,11 @@ class Trie(_abc.MutableMapping):
         node, trace = self._get_node(key)
         if is_slice:
             node.children = _EMPTY
-        elif node.value is _EMPTY:
+        elif node.value is _SENTINEL:
             raise ShortKeyError(key)
         self._pop_value(trace)
 
-    class _NoneStep:
-        """Representation of a non-existent step towards non-existent node."""
-
-        __slots__ = ()
-
-        def __bool__(self):
-            return False
-
-        def get(self, default=None):
-            return default
-
-        is_set = has_subtrie = property(__bool__)
-        key = value = property(lambda self: None)
-
-        def __getitem__(self, index):
-            """Makes object appear like a (key, value) tuple.
-
-            This is deprecated and for backwards-compatibility only.  Prefer
-            using ``key`` and ``value`` properties directly.
-
-            Args:
-                index: Element index to return.  Zero for key, one for value.
-
-            Returns:
-                ``self.key`` if index is ``0``, ``self.value`` if it's ``1``.
-                Otherwise raises an IndexError exception.
-
-            Raises:
-                IndexError: if index is not 0 or 1.
-                KeyError: if index is 1 but node has no value assigned.
-            """
-            if index == 0:
-                return self.key
-            if index == 1:
-                return self.value
-            raise IndexError('index out of range')
-
-        def __repr__(self):
-            return '(None Step)'
-
-    class _Step(_NoneStep):
-        """Representation of a single step on a path towards particular node."""
-
-        __slots__ = ('_trie', '_path', '_pos', '_node', '__key')
-
-        def __init__(self, trie, path, pos, node):
-            self._trie = trie
-            self._path = path
-            self._pos = pos
-            self._node = node
-
-        def __bool__(self):
-            return True
-
-        @property
-        def is_set(self):
-            """Returns whether the node has value assigned to it."""
-            return self._node.value is not _EMPTY
-
-        @property
-        def has_subtrie(self):
-            """Returns whether the node has any children."""
-            return bool(self._node.children)
-
-        def get(self, default=None):
-            """Returns node's value or the default if value is not assigned."""
-            v = self._node.value
-            return default if v is _EMPTY else v
-
-        def set(self, value):
-            """Deprecated.  Use ``step.value = value`` instead."""
-            self._node.value = value
-
-        def setdefault(self, value):
-            """Assigns value to the node if one is not set then returns it."""
-            if self._node.value is _EMPTY:
-                self._node.value = value
-            return self._node.value
-
-        def __repr__(self):
-            return '(%r: %r)' % (self.key, self.value)
-
-        @property
-        def key(self):
-            """Returns key of the node."""
-            if not hasattr(self, '_Step__key'):
-                # pylint:disable=protected-access,attribute-defined-outside-init
-                self.__key = self._trie._key_from_path(self._path[:self._pos])
-            return self.__key
-
-        @property
-        def value(self):
-            """Returns node's value or raises KeyError."""
-            v = self._node.value
-            if v is _EMPTY:
-                raise ShortKeyError(self.key)
-            return v
-
-        @value.setter
-        def value(self, value):
-            self._node.value = value
-
-    _NONE_STEP = _NoneStep()
-
-    def walk_towards(self, key):
+    def walk_towards(self, key: str) -> Generator[_Step[V], Any, None]:
         """Yields nodes on the path to given node.
 
         Args:
@@ -1211,10 +1450,10 @@ class Trie(_abc.MutableMapping):
                 raised only once a missing node is encountered.
         """
         node = self._root
-        path = self.__path_from_key(key)
+        path = list(self.__path_from_key(key))
         pos = 0
         while True:
-            yield self._Step(self, path, pos, node)
+            yield _Step(self, path, pos, node)
             if pos == len(path):
                 break
             # pylint thinks node.children is always _NoChildren and thus that
@@ -1224,7 +1463,7 @@ class Trie(_abc.MutableMapping):
                 raise KeyError(key)
             pos += 1
 
-    def prefixes(self, key):
+    def prefixes(self, key) -> Generator[_Step[V], Any, None]:
         """Walks towards the node specified by key and yields all found items.
 
         Example:
@@ -1257,7 +1496,7 @@ class Trie(_abc.MutableMapping):
         except KeyError:
             pass
 
-    def shortest_prefix(self, key):
+    def shortest_prefix(self, key) -> Union[_Step[V], _NoneStep]:
         """Finds the shortest prefix of a key with a value.
 
         This is roughly equivalent to taking the first object yielded by
@@ -1295,9 +1534,9 @@ class Trie(_abc.MutableMapping):
             associated value of the prefix.  This is deprecated, prefer using
             ``key`` and ``value`` properties of the object.
         """
-        return next(self.prefixes(key), self._NONE_STEP)
+        return next(self.prefixes(key), _NONE_STEP)
 
-    def longest_prefix(self, key):
+    def longest_prefix(self, key) -> Union[_NoneStep, _Step[V]]:
         """Finds the longest prefix of a key with a value.
 
         This is roughly equivalent to taking the last object yielded by
@@ -1335,7 +1574,7 @@ class Trie(_abc.MutableMapping):
             associated value of the prefix.  This is deprecated, prefer using
             ``key`` and ``value`` properties of the object.
         """
-        ret = self._NONE_STEP
+        ret = _NONE_STEP
         for ret in self.prefixes(key):
             pass
         return ret
@@ -1443,37 +1682,37 @@ class Trie(_abc.MutableMapping):
                 return result
         return super().__eq__(other)
 
-    def _eq_impl(self, other):
-        return self._root.equals(other._root) # pylint: disable=protected-access
+    def _eq_impl(self, other: "Trie[V]"):
+        return self._root.equals(other._root)  # pylint: disable=protected-access
 
     def __ne__(self, other):
         return not self == other
 
-    def _str_items(self, fmt='%s: %s'):
-        return ', '.join(fmt % item for item in self.iteritems())
+    def _str_items(self, fmt="{k}: {v}"):
+        return ", ".join(fmt.format(k=item[0], v=item[1]) for item in self.iteritems())
 
     def __str__(self):
-        return '%s(%s)' % (type(self).__name__, self._str_items())
+        return f"{self.__class__.__name__}({self._str_items()})"
 
     def __repr__(self):
-        return '%s([%s])' % (type(self).__name__, self._str_items('(%r, %r)'))
+        return f"{self.__class__.__name__}([{self._str_items('({k!r}: {v!r})')}])"
 
-    def __path_from_key(self, key):
+    def __path_from_key(self, key: Union[str, Literal[_SENTINEL]]) -> Iterable[str]:
         """Converts a user visible key object to internal path representation.
 
         Args:
-            key: User supplied key or ``_EMPTY``.
+            key: User supplied key or ``_SENTINEL``.
 
         Returns:
-            An empty tuple if ``key`` was ``_EMPTY``, otherwise whatever
+            An empty tuple if ``key`` was ``_SENTINEL``, otherwise whatever
             :func:`Trie._path_from_key` returns.
 
         Raises:
             TypeError: If ``key`` is of invalid type.
         """
-        return () if key is _EMPTY else self._path_from_key(key)
+        return () if key is _SENTINEL else self._path_from_key(key)
 
-    def _path_from_key(self, key):
+    def _path_from_key(self, key: str) -> Iterable[str]:
         """Converts a user visible key object to internal path representation.
 
         The default implementation simply returns key.
@@ -1489,7 +1728,7 @@ class Trie(_abc.MutableMapping):
         """
         return key
 
-    def _key_from_path(self, path):
+    def _key_from_path(self, path: Iterable[str]) -> str:
         """Converts an internal path into a user visible key object.
 
         The default implementation creates a tuple from the path.
@@ -1499,9 +1738,13 @@ class Trie(_abc.MutableMapping):
         Returns:
             A user visible key object.
         """
-        return tuple(path)
+        return "".join(path)
 
-    def traverse(self, node_factory, prefix=_EMPTY):
+    def traverse(
+        self,
+        node_factory: NodeFactory[V],
+        prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL,
+    ):
         """Traverses the tree using node_factory object.
 
         node_factory is a callable which accepts (path_conv, path, children,
@@ -1647,13 +1890,17 @@ class Trie(_abc.MutableMapping):
             node.
         """
         node, _ = self._get_node(prefix)
-        return node.traverse(node_factory, self._key_from_path,
-                             list(self.__path_from_key(prefix)),
-                             self._items_callback)
+        return node.traverse(
+            node_factory,
+            self._key_from_path,
+            list(self.__path_from_key(prefix)),
+            self._items_callback,
+        )
 
     traverse.uses_bool_convertible_children = True
 
-class CharTrie(Trie):
+
+class CharTrie(Trie[V]):
     """A variant of a :class:`pygtrie.Trie` which accepts strings as keys.
 
     The only difference between :class:`pygtrie.CharTrie` and
@@ -1680,11 +1927,11 @@ class CharTrie(Trie):
         False
     """
 
-    def _key_from_path(self, path):
-        return ''.join(path)
+    def _key_from_path(self, path: Iterable[str]):
+        return "".join(path)
 
 
-class StringTrie(Trie):
+class StringTrie(Trie[V]):
     """:class:`pygtrie.Trie` variant accepting strings with a separator as keys.
 
     The trie accepts strings as keys which are split into components using
@@ -1710,34 +1957,51 @@ class StringTrie(Trie):
         handler = handlers.longest_prefix(request_path)
     """
 
-    def __init__(self, *args, **kwargs):  # pylint: disable=differing-param-doc
+    def __init__(
+        self,
+        other: Union[_abc.MutableMapping[str, V], Iterable[Tuple[str, V]], None] = None,
+        /,
+        separator: str = "/",
+        **kwargs: V,
+    ):  # pylint: disable=differing-param-doc
         """Initialises the trie.
 
         Except for a ``separator`` named argument, all other arguments are
         interpreted the same way :func:`Trie.update` interprets them.
 
         Args:
-            *args: Passed to super class initialiser.
-            **kwargs: Passed to super class initialiser.
+            other: Mapping or iterable of key-value pairs to initialise the trie
+                with.
             separator: A separator to use when splitting keys into paths used by
                 the trie.  "/" is used if this argument is not specified.  This
                 named argument is not specified on the function's prototype
                 because of Python's limitations.
-
+            **kwargs: Passed to super class initialiser.
         Raises:
             TypeError: If ``separator`` is not a string.
             ValueError: If ``separator`` is empty.
         """
-        separator = kwargs.pop('separator', '/')
         if not isinstance(separator, str):
-            raise TypeError('separator must be a string')
+            raise TypeError("separator must be a string")
         if not separator:
-            raise ValueError('separator can not be empty')
+            raise ValueError("separator can not be empty")
         self._separator = separator
-        super().__init__(*args, **kwargs)
+        super().__init__(other, **kwargs)
 
     @classmethod
-    def fromkeys(cls, keys, value=None, separator='/'):  # pylint: disable=arguments-differ
+    @overload
+    def fromkeys(
+        cls, keys: Iterable[str], value: None = None, separator="/"
+    ) -> "StringTrie[Any | None]": ...
+    @classmethod
+    @overload
+    def fromkeys(
+        cls, keys: Iterable[str], value: V1, separator="/"
+    ) -> "StringTrie[V1]": ...
+    @classmethod
+    def fromkeys(
+        cls, keys: Iterable[str], value: Any = None, separator="/"
+    ) -> "StringTrie[Any]":
         trie = cls(separator=separator)
         for key in keys:
             trie[key] = value
@@ -1746,37 +2010,38 @@ class StringTrie(Trie):
     @classmethod
     def _merge_impl(cls, dst, src, overwrite):
         if not isinstance(dst, StringTrie):
-            raise TypeError('%s cannot be merged into a %s' % (
-                type(src).__name__, type(dst).__name__))
-        super(StringTrie, cls)._merge_impl(dst, src, overwrite=overwrite)
+            raise TypeError(
+                f"{src.__class__.__name__} cannot be merged into a {dst.__class__.__name__}"
+            )
+        super()._merge_impl(dst, src, overwrite=overwrite)
 
     def __str__(self):
         if not self:
-            return '%s(separator=%s)' % (type(self).__name__, self._separator)
-        return '%s(%s, separator=%s)' % (
-            type(self).__name__, self._str_items(), self._separator)
+            return f"{self.__class__.__name__}(separator={self._separator!r})"
+        return f"{self.__class__.__name__}({self._str_items()!r}, separator={self._separator!r})"
 
     def __repr__(self):
-        return '%s([%s], separator=%r)' % (
-            type(self).__name__, self._str_items('(%r, %r)'), self._separator)
+        return f"{self.__class__.__name__}([{self._str_items('({k!r}: {v!r})')}], separator={self._separator!r})"
 
     def _eq_impl(self, other):
         # If separators differ, fall back to slow generic comparison.  This is
         # because we want StringTrie(foo/bar.baz: 42, separator=/) compare equal
         # to StringTrie(foo/bar.baz: 42, separator=.) even though they have
         # different trie structure.
+        if not isinstance(other, StringTrie):
+            return NotImplemented
         if self._separator != other._separator:  # pylint: disable=protected-access
             return NotImplemented
         return super()._eq_impl(other)
 
-    def _path_from_key(self, key):
+    def _path_from_key(self, key: str):
         return key.split(self._separator)
 
-    def _key_from_path(self, path):
+    def _key_from_path(self, path: Iterable[str]):
         return self._separator.join(path)
 
 
-class PrefixSet(_abc.MutableSet):
+class PrefixSet(_abc.MutableSet[str]):
     """A set of prefixes.
 
     :class:`pygtrie.PrefixSet` works similar to a normal set except it is said
@@ -1789,7 +2054,7 @@ class PrefixSet(_abc.MutableSet):
     behaviour for element deletion.
     """
 
-    def __init__(self, iterable=(), factory=Trie, **kwargs):
+    def __init__(self, iterable: Iterable[str] = (), factory=Trie, **kwargs: str):
         """Initialises the prefix set.
 
         Args:
@@ -1799,7 +2064,7 @@ class PrefixSet(_abc.MutableSet):
             kwargs: Additional keyword arguments passed to the factory function.
         """
         super().__init__()
-        self._trie = factory(**kwargs)
+        self._trie: Trie[bool] = factory(**kwargs)
         for key in iterable:
             self.add(key)
 
@@ -1836,7 +2101,7 @@ class PrefixSet(_abc.MutableSet):
         """
         return self._trie.iterkeys()
 
-    def iter(self, prefix=_EMPTY):
+    def iter(self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL):
         """Iterates over all keys in the set optionally starting with a prefix.
 
         Since a key does not have to be explicitly added to the set to be an
@@ -1857,15 +2122,14 @@ class PrefixSet(_abc.MutableSet):
         with no arguments will yield "foo" only.  However, when called with
         "foobar" argument, it will yield "foobar" only.
         """
-        if prefix is _EMPTY:
+        if prefix is _SENTINEL:
             return iter(self)
         if self._trie.has_node(prefix):
             return self._trie.iterkeys(prefix=prefix)
         if prefix in self:
             # Make sure the type of returned keys is consistent.
             # pylint: disable=protected-access
-            return (
-                self._trie._key_from_path(self._trie._path_from_key(prefix)),)
+            return (self._trie._key_from_path(self._trie._path_from_key(prefix)),)
         return ()
 
     def __len__(self):
@@ -1882,7 +2146,7 @@ class PrefixSet(_abc.MutableSet):
         """
         return len(self._trie)
 
-    def add(self, value):
+    def add(self, value: str):
         """Adds given value to the set.
 
         If the set already contains prefix of the value being added, this
@@ -1905,17 +2169,14 @@ class PrefixSet(_abc.MutableSet):
         # We're friends with Trie;  pylint: disable=protected-access
         self._trie._set_node_if_no_prefix(value)
 
-    def discard(self, value):
+    def discard(self, value: str):
         """Raises NotImplementedError."""
-        raise NotImplementedError(
-            'Removing values from PrefixSet is not implemented.')
+        raise NotImplementedError("Removing values from PrefixSet is not implemented.")
 
-    def remove(self, value):
+    def remove(self, value: str):
         """Raises NotImplementedError."""
-        raise NotImplementedError(
-            'Removing values from PrefixSet is not implemented.')
+        raise NotImplementedError("Removing values from PrefixSet is not implemented.")
 
     def pop(self):
         """Raises NotImplementedError."""
-        raise NotImplementedError(
-            'Removing values from PrefixSet is not implemented.')
+        raise NotImplementedError("Removing values from PrefixSet is not implemented.")

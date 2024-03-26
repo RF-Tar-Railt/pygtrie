@@ -189,7 +189,7 @@ class _OneChild(Children[_VT]):
     sorted_items = items
 
     def pick(self):
-        return (self.step, self.node)
+        return self.step, self.node
 
     def get(self, step):
         return self.node if step == self.step else None
@@ -204,7 +204,7 @@ class _OneChild(Children[_VT]):
 
     def merge(self, other, queue):
         """Moves children from other into this object."""
-        if type(other) == _OneChild and other.step == self.step:
+        if isinstance(other, _OneChild) and other.step == self.step:
             queue.append((self.node, other.node))
             return self
         else:
@@ -621,8 +621,21 @@ class _NoneStep(Step[None, None]):
     def setdefault(self, value):
         return value
 
-    is_set = has_subtrie = property(__bool__)
-    key = value = property(lambda self: None)
+    @property
+    def is_set(self) -> Literal[False]:
+        return False
+
+    @property
+    def has_subtrie(self) -> Literal[False]:
+        return False
+
+    @property
+    def key(self) -> None:
+        return None
+
+    @property
+    def value(self) -> None:
+        return None
 
     def __getitem__(self, index):
         if index == 0:
@@ -872,6 +885,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
     @classmethod
     @overload
     def fromkeys(cls, keys: Iterable[str], value: V1) -> "Trie[V1]": ...
+
     @classmethod
     def fromkeys(cls, keys: Iterable[str], value: Any = None) -> "Trie[Any]":
         """Creates a new trie with given keys set.
@@ -1012,7 +1026,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
         for path, value in node.iterate(
             list(self.__path_from_key(prefix)), shallow, self._items_callback
         ):
-            yield (self._key_from_path(path), value)
+            yield self._key_from_path(path), value
 
     def iterkeys(
         self, prefix: Union[str, Literal[_SENTINEL]] = _SENTINEL, shallow: bool = False
@@ -1178,6 +1192,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
     @staticmethod
     @overload
     def _slice_maybe(key_or_slice: slice) -> Tuple[str, Literal[True]]: ...
+
     @staticmethod
     def _slice_maybe(key_or_slice):
         """Checks whether argument is a slice or a plain key.
@@ -1205,6 +1220,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
 
     @overload
     def __getitem__(self, key_or_slice: slice) -> Generator[V, Any, None]: ...
+
     def __getitem__(self, key_or_slice: Union[str, slice]):
         """Returns value associated with given key or raises KeyError.
 
@@ -1293,8 +1309,10 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
     def setdefault(
         self: "Trie[V1 | None]", key: str, default: None = None
     ) -> Union[V1, None]: ...
+
     @overload
     def setdefault(self, key: str, default: V) -> V: ...
+
     def setdefault(self, key: str, default: Union[V, None] = None):  # type: ignore
         """Sets value of a given node if not set already.  Also returns it.
 
@@ -1536,7 +1554,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
         """
         return next(self.prefixes(key), _NONE_STEP)
 
-    def longest_prefix(self, key) -> Union[_NoneStep, _Step[V]]:
+    def longest_prefix(self, key) -> Union[_Step[V], _NoneStep]:
         """Finds the longest prefix of a key with a value.
 
         This is roughly equivalent to taking the last object yielded by
@@ -1611,7 +1629,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
         """
         if self is other:
             return True
-        if type(self) != type(other):
+        if type(self) is not type(other):
             return False
         result = self._eq_impl(other)
         if result is NotImplemented:
@@ -1676,7 +1694,7 @@ class Trie(_abc.MutableMapping[str, V], Generic[V]):
         """
         if self is other:
             return True
-        if type(other) == type(self):
+        if type(other) is not type(self):
             result = self._eq_impl(other)
             if result is not NotImplemented:
                 return result
@@ -1993,11 +2011,13 @@ class StringTrie(Trie[V]):
     def fromkeys(
         cls, keys: Iterable[str], value: None = None, separator="/"
     ) -> "StringTrie[Any | None]": ...
+
     @classmethod
     @overload
     def fromkeys(
         cls, keys: Iterable[str], value: V1, separator="/"
     ) -> "StringTrie[V1]": ...
+
     @classmethod
     def fromkeys(
         cls, keys: Iterable[str], value: Any = None, separator="/"

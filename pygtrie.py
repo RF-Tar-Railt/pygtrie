@@ -296,7 +296,7 @@ NodeFactory = Callable[
         Callable[[Tuple[str, ...]], str],
         Tuple[str, ...],
         Generator["_Node[T]", None, None],
-        Optional[T],
+        T,
     ],
     "_Node[T]",
 ]
@@ -403,11 +403,11 @@ class _Node(Generic[V]):
             for step, node in items(self.children)
         )
 
-        value_maybe = None
+        value_maybe = ()
         if self.value is not _SENTINEL:
-            value_maybe = self.value
+            value_maybe = (self.value,)
 
-        return node_factory(path_conv, tuple(path), children, value_maybe)
+        return node_factory(path_conv, tuple(path), children, *value_maybe)
 
     def equals(self, other: "_Node[V]"):
         """Returns whether this and other node are recursively equal."""
